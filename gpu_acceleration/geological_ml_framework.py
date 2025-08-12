@@ -49,8 +49,8 @@ except ImportError:
 
 @dataclass
 class GeologicalConfig:
-    """地质配置类"""
-    # 地质模拟常用参数
+    """地质配置类 - 增强版"""
+    # 基础地质参数
     porosity: float = 0.2
     permeability: float = 1e-12  # m²
     viscosity: float = 1e-3      # Pa·s
@@ -58,6 +58,18 @@ class GeologicalConfig:
     compressibility: float = 1e-9 # Pa⁻¹
     thermal_conductivity: float = 2.0  # W/(m·K)
     specific_heat: float = 1000.0      # J/(kg·K)
+    
+    # 新增：地质力学参数
+    youngs_modulus: float = 1e9      # Pa，杨氏模量
+    poissons_ratio: float = 0.25     # 泊松比
+    cohesion: float = 1e6            # Pa，内聚力
+    friction_angle: float = 30.0     # 度，内摩擦角
+    
+    # 新增：地幔对流参数
+    reference_viscosity: float = 1e21    # Pa·s，参考黏度
+    thermal_expansion: float = 3e-5      # K⁻¹，热膨胀系数
+    gravity: float = 9.81                # m/s²，重力加速度
+    rayleigh_number: float = 1e7         # 瑞利数
     
     # 新增：GPU加速支持
     use_gpu: bool = True
@@ -125,7 +137,7 @@ class BaseSolver(ABC):
 
 
 class GeologicalPhysicsEquations:
-    """地质物理方程集合"""
+    """地质物理方程集合 - 增强版"""
     
     @staticmethod
     def darcy_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
@@ -143,21 +155,41 @@ class GeologicalPhysicsEquations:
         if not HAS_PYTORCH:
             return torch.tensor(0.0)
         
-        # 简化版本：计算压力梯度
+        # 改进版本：更精确的达西定律实现
         p = y.unsqueeze(-1) if y.dim() == 1 else y
         
-        # 使用自动微分计算梯度
-        p_grad = torch.autograd.grad(
-            p.sum(), x, 
+        # 计算压力梯度的二阶导数（拉普拉斯算子）
+        p_grad_x = torch.autograd.grad(
+            p.sum(), x[:, 0], 
             grad_outputs=torch.ones_like(p), 
             create_graph=True, retain_graph=True
         )[0]
         
-        # 达西定律残差：简化版本
-        k_over_mu = config.permeability / config.viscosity
-        residual = torch.mean(torch.abs(p_grad)) - k_over_mu * 0.1  # 假设源项为0.1
+        p_grad_y = torch.autograd.grad(
+            p.sum(), x[:, 1], 
+            grad_outputs=torch.ones_like(p), 
+            create_graph=True, retain_graph=True
+        )[0]
         
-        return residual
+        if x.shape[1] > 2:  # 3D情况
+            p_grad_z = torch.autograd.grad(
+                p.sum(), x[:, 2], 
+                grad_outputs=torch.ones_like(p), 
+                create_graph=True, retain_graph=True
+            )[0]
+            laplacian_p = torch.autograd.grad(p_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(p_grad_y.sum(), x[:, 1], create_graph=True)[0] + \
+                          torch.autograd.grad(p_grad_z.sum(), x[:, 2], create_graph=True)[0]
+        else:  # 2D情况
+            laplacian_p = torch.autograd.grad(p_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(p_grad_y.sum(), x[:, 1], create_graph=True)[0]
+        
+        # 达西定律残差：∇·(k/μ ∇p) = q
+        k_over_mu = config.permeability / config.viscosity
+        source_term = 0.01  # 源项
+        residual = k_over_mu * laplacian_p - source_term
+        
+        return torch.mean(torch.abs(residual))
     
     @staticmethod
     def heat_conduction_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
@@ -175,19 +207,41 @@ class GeologicalPhysicsEquations:
         if not HAS_PYTORCH:
             return torch.tensor(0.0)
         
-        # 计算温度梯度
+        # 改进版本：更精确的热传导方程实现
         T = y.unsqueeze(-1) if y.dim() == 1 else y
-        T_grad = torch.autograd.grad(
-            T.sum(), x, 
+        
+        # 计算温度梯度的二阶导数
+        T_grad_x = torch.autograd.grad(
+            T.sum(), x[:, 0], 
             grad_outputs=torch.ones_like(T), 
             create_graph=True, retain_graph=True
         )[0]
         
-        # 热传导方程残差：简化版本
-        heat_source = 0.01  # 假设热源
-        residual = torch.mean(torch.abs(T_grad)) - heat_source / (config.density * config.specific_heat)
+        T_grad_y = torch.autograd.grad(
+            T.sum(), x[:, 1], 
+            grad_outputs=torch.ones_like(T), 
+            create_graph=True, retain_graph=True
+        )[0]
         
-        return residual
+        if x.shape[1] > 2:  # 3D情况
+            T_grad_z = torch.autograd.grad(
+                T.sum(), x[:, 2], 
+                grad_outputs=torch.ones_like(T), 
+                create_graph=True, retain_graph=True
+            )[0]
+            laplacian_T = torch.autograd.grad(T_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(T_grad_y.sum(), x[:, 1], create_graph=True)[0] + \
+                          torch.autograd.grad(T_grad_z.sum(), x[:, 2], create_graph=True)[0]
+        else:  # 2D情况
+            laplacian_T = torch.autograd.grad(T_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(T_grad_y.sum(), x[:, 1], create_graph=True)[0]
+        
+        # 热传导方程残差：ρc∂T/∂t = ∇·(k∇T) + Q
+        # 简化：忽略时间导数，稳态热传导
+        heat_source = 0.01  # 热源
+        residual = config.thermal_conductivity * laplacian_T + heat_source
+        
+        return torch.mean(torch.abs(residual))
     
     @staticmethod
     def elastic_equilibrium_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
@@ -205,21 +259,169 @@ class GeologicalPhysicsEquations:
         if not HAS_PYTORCH:
             return torch.tensor(0.0)
         
-        # 计算位移梯度
+        # 改进版本：更精确的弹性力学方程实现
         u = y.unsqueeze(-1) if y.dim() == 1 else y
-        u_grad = torch.autograd.grad(
-            u.sum(), x, 
+        
+        # 计算位移梯度的二阶导数
+        u_grad_x = torch.autograd.grad(
+            u.sum(), x[:, 0], 
             grad_outputs=torch.ones_like(u), 
             create_graph=True, retain_graph=True
         )[0]
         
-        # 弹性平衡方程残差：∇·σ + f = 0
-        # 改进版本：考虑杨氏模量和泊松比
-        youngs_modulus = 1e9  # 假设杨氏模量
-        body_force = 9.81 * config.density  # 重力
-        residual = torch.mean(torch.abs(u_grad)) - body_force / youngs_modulus
+        u_grad_y = torch.autograd.grad(
+            u.sum(), x[:, 1], 
+            grad_outputs=torch.ones_like(u), 
+            create_graph=True, retain_graph=True
+        )[0]
         
-        return residual
+        if x.shape[1] > 2:  # 3D情况
+            u_grad_z = torch.autograd.grad(
+                u.sum(), x[:, 2], 
+                grad_outputs=torch.ones_like(u), 
+                create_graph=True, retain_graph=True
+            )[0]
+            laplacian_u = torch.autograd.grad(u_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(u_grad_y.sum(), x[:, 1], create_graph=True)[0] + \
+                          torch.autograd.grad(u_grad_z.sum(), x[:, 2], create_graph=True)[0]
+        else:  # 2D情况
+            laplacian_u = torch.autograd.grad(u_grad_x.sum(), x[:, 0], create_graph=True)[0] + \
+                          torch.autograd.grad(u_grad_y.sum(), x[:, 1], create_graph=True)[0]
+        
+        # 弹性平衡方程残差：∇·σ + f = 0
+        # 使用配置中的杨氏模量和泊松比
+        body_force = config.gravity * config.density  # 重力
+        residual = config.youngs_modulus / (2 * (1 + config.poissons_ratio)) * laplacian_u + body_force
+        
+        return torch.mean(torch.abs(residual))
+    
+    @staticmethod
+    def stokes_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        地幔对流的Stokes动量方程残差：
+        ∇·(η(∇v + ∇v^T)) - ∇p + ρgα(T-T0) = 0
+        
+        Args:
+            x: 输入坐标 (x, y, z)
+            y: 模型输出 [v_x, v_y, v_z, p, T] 5个物理量
+            config: 地质配置参数
+        
+        Returns:
+            Stokes方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        # 解析输出：速度、压力、温度
+        vx, vy, vz, p, T = y[:, 0], y[:, 1], y[:, 2], y[:, 3], y[:, 4]
+        
+        # 计算速度梯度（空间导数）
+        vx_x = torch.autograd.grad(vx, x[:, 0], grad_outputs=torch.ones_like(vx), create_graph=True)[0]
+        vx_y = torch.autograd.grad(vx, x[:, 1], grad_outputs=torch.ones_like(vx), create_graph=True)[0]
+        vx_z = torch.autograd.grad(vx, x[:, 2], grad_outputs=torch.ones_like(vx), create_graph=True)[0]
+        
+        vy_x = torch.autograd.grad(vy, x[:, 0], grad_outputs=torch.ones_like(vy), create_graph=True)[0]
+        vy_y = torch.autograd.grad(vy, x[:, 1], grad_outputs=torch.ones_like(vy), create_graph=True)[0]
+        vy_z = torch.autograd.grad(vy, x[:, 2], grad_outputs=torch.ones_like(vy), create_graph=True)[0]
+        
+        vz_x = torch.autograd.grad(vz, x[:, 0], grad_outputs=torch.ones_like(vz), create_graph=True)[0]
+        vz_y = torch.autograd.grad(vz, x[:, 1], grad_outputs=torch.ones_like(vz), create_graph=True)[0]
+        vz_z = torch.autograd.grad(vz, x[:, 2], grad_outputs=torch.ones_like(vz), create_graph=True)[0]
+        
+        # 计算压力梯度
+        p_x = torch.autograd.grad(p, x[:, 0], grad_outputs=torch.ones_like(p), create_graph=True)[0]
+        p_y = torch.autograd.grad(p, x[:, 1], grad_outputs=torch.ones_like(p), create_graph=True)[0]
+        p_z = torch.autograd.grad(p, x[:, 2], grad_outputs=torch.ones_like(p), create_graph=True)[0]
+        
+        # 黏度与温度的非线性关系（地质模拟中关键特性）
+        # 使用Arrhenius关系：η = η₀ * exp(E/R * (1/T - 1/T₀))
+        T_ref = 273.15  # 参考温度 (K)
+        activation_energy = 200e3  # 激活能 (J/mol)
+        gas_constant = 8.314  # 气体常数 (J/(mol·K))
+        
+        # 避免除零，使用安全的温度计算
+        T_safe = torch.clamp(T + T_ref, min=1e-6)
+        eta = config.reference_viscosity * torch.exp(
+            activation_energy / gas_constant * (1.0 / T_safe - 1.0 / T_ref)
+        )
+        
+        # 计算应变率张量 D = (∇v + ∇v^T) / 2
+        Dxx = vx_x
+        Dyy = vy_y
+        Dzz = vz_z
+        Dxy = (vx_y + vy_x) / 2
+        Dxz = (vx_z + vz_x) / 2
+        Dyz = (vy_z + vz_y) / 2
+        
+        # 计算应力张量 σ = 2ηD
+        sigma_xx = 2 * eta * Dxx
+        sigma_yy = 2 * eta * Dyy
+        sigma_zz = 2 * eta * Dzz
+        sigma_xy = 2 * eta * Dxy
+        sigma_xz = 2 * eta * Dxz
+        sigma_yz = 2 * eta * Dyz
+        
+        # 计算应力散度 ∇·σ
+        sigma_xx_x = torch.autograd.grad(sigma_xx.sum(), x[:, 0], create_graph=True)[0]
+        sigma_xy_y = torch.autograd.grad(sigma_xy.sum(), x[:, 1], create_graph=True)[0]
+        sigma_xz_z = torch.autograd.grad(sigma_xz.sum(), x[:, 2], create_graph=True)[0]
+        
+        sigma_yx_x = torch.autograd.grad(sigma_xy.sum(), x[:, 0], create_graph=True)[0]
+        sigma_yy_y = torch.autograd.grad(sigma_yy.sum(), x[:, 1], create_graph=True)[0]
+        sigma_yz_z = torch.autograd.grad(sigma_yz.sum(), x[:, 2], create_graph=True)[0]
+        
+        sigma_zx_x = torch.autograd.grad(sigma_xz.sum(), x[:, 0], create_graph=True)[0]
+        sigma_zy_y = torch.autograd.grad(sigma_yz.sum(), x[:, 1], create_graph=True)[0]
+        sigma_zz_z = torch.autograd.grad(sigma_zz.sum(), x[:, 2], create_graph=True)[0]
+        
+        # 动量方程残差：∇·σ - ∇p + ρgα(T-T0) = 0
+        residual_x = (sigma_xx_x + sigma_xy_y + sigma_xz_z) - p_x + config.density * config.gravity * config.thermal_expansion * T
+        residual_y = (sigma_yx_x + sigma_yy_y + sigma_yz_z) - p_y + config.density * config.gravity * config.thermal_expansion * T
+        residual_z = (sigma_zx_x + sigma_zy_y + sigma_zz_z) - p_z + config.density * config.gravity * config.thermal_expansion * T
+        
+        # 返回残差的L2范数
+        return torch.sqrt(torch.mean(residual_x**2 + residual_y**2 + residual_z**2))
+    
+    @staticmethod
+    def mass_conservation_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        质量守恒方程：∇·v = 0
+        
+        Args:
+            x: 输入坐标 (x, y, z)
+            y: 模型输出 [v_x, v_y, v_z] 速度场
+        
+        Returns:
+            质量守恒方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        vx, vy, vz = y[:, 0], y[:, 1], y[:, 2]
+        
+        # 计算速度散度
+        vx_grad_x = torch.autograd.grad(
+            vx.sum(), x[:, 0], 
+            grad_outputs=torch.ones_like(vx), 
+            create_graph=True, retain_graph=True
+        )[0]
+        
+        vy_grad_y = torch.autograd.grad(
+            vy.sum(), x[:, 1], 
+            grad_outputs=torch.ones_like(vy), 
+            create_graph=True, retain_graph=True
+        )[0]
+        
+        vz_grad_z = torch.autograd.grad(
+            vz.sum(), x[:, 2], 
+            grad_outputs=torch.ones_like(vz), 
+            create_graph=True, retain_graph=True
+        )[0]
+        
+        # 质量守恒残差：∇·v = 0
+        residual = vx_grad_x + vy_grad_y + vz_grad_z
+        
+        return torch.mean(torch.abs(residual))
 
 
 class GeologicalPINN(BaseSolver, nn.Module):
@@ -535,11 +737,11 @@ class GeologicalSurrogateModel(BaseSolver):
     def train(self, X: np.ndarray, y: np.ndarray, geological_features: np.ndarray = None, 
               cv: int = 0, **kwargs) -> dict:
         """
-        训练地质代理模型（支持交叉验证）
+        训练地质代理模型（支持交叉验证和高维输出）
         
         Args:
-            X: 输入特征
-            y: 输出标签
+            X: 输入特征 (n_samples, n_params)，如 [黏度系数, 热导率, 边界温度]
+            y: 输出物理场 (n_samples, H, W, D) 或 (n_samples, n_outputs)，如三维温度场
             geological_features: 地质特征（可选）
             cv: 交叉验证折数（0表示不进行交叉验证）
             **kwargs: 模型特定参数
@@ -550,6 +752,15 @@ class GeologicalSurrogateModel(BaseSolver):
         
         start_time = time.time()
         
+        # 处理高维输出（如3D场数据）
+        if y.ndim > 2:
+            self.y_shape = y.shape[1:]  # 记录原始形状 (H, W, D)
+            y_reshaped = y.reshape(y.shape[0], -1)  # 展平为 (n_samples, H*W*D)
+            print(f"   检测到高维输出，原始形状: {y.shape}，展平后: {y_reshaped.shape}")
+        else:
+            self.y_shape = None
+            y_reshaped = y
+        
         # 合并地质特征（如果提供）
         if geological_features is not None:
             if geological_features.shape[0] != X.shape[0]:
@@ -559,7 +770,7 @@ class GeologicalSurrogateModel(BaseSolver):
         
         # 数据标准化
         X_scaled = self.scaler_X.fit_transform(X)
-        y_scaled = self.scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+        y_scaled = self.scaler_y.fit_transform(y_reshaped.reshape(-1, 1)).flatten()
         
         # 根据模型类型初始化并训练
         if self.model_type == 'gaussian_process':
@@ -684,7 +895,7 @@ class GeologicalSurrogateModel(BaseSolver):
     
     def predict(self, X: np.ndarray, return_std: bool = False, batch_size: int = None) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
-        预测 - 支持批量处理和不确定性估计
+        预测 - 支持批量处理、不确定性估计和高维输出恢复
         
         Args:
             X: 输入特征
@@ -744,8 +955,16 @@ class GeologicalSurrogateModel(BaseSolver):
         
         predictions = np.concatenate(predictions)
         
+        # 恢复高维输出形状（如果训练时是高维数据）
+        if self.y_shape is not None and not return_std:
+            predictions = predictions.reshape(-1, *self.y_shape)
+            print(f"   恢复高维输出形状: {predictions.shape}")
+        
         if return_std:
             stds = np.concatenate(stds)
+            # 对于高维输出，标准差也需要恢复形状
+            if self.y_shape is not None:
+                stds = stds.reshape(-1, *self.y_shape)
             return predictions, stds
         
         return predictions
@@ -1006,6 +1225,12 @@ class GeologicalMultiScaleBridge:
     
     核心思想：在跨尺度地质模拟中（如从微观孔隙到宏观油藏），
     用ML模型替代小尺度精细模拟，将小尺度结果"打包"为大尺度模型的参数
+    
+    增强功能：
+    1. 地质尺度约束（质量守恒、动量守恒等）
+    2. 微观特征提取（孔隙度统计、梯度分析等）
+    3. 支持多种桥接模型类型
+    4. 地质特定的尺度转换逻辑
     """
     
     def __init__(self, fine_scale_model: Callable = None, coarse_scale_model: Callable = None):
@@ -1013,8 +1238,20 @@ class GeologicalMultiScaleBridge:
         self.coarse_scale_model = coarse_scale_model
         self.bridge_model = None
         self.is_trained = False
-        self.scale_ratio = 1.0
+        self.scale_ratio = 1000.0  # 地质尺度比（1千米=1e6毫米）
         self.bridge_type = 'neural_network'
+        self.geology_constraints = []  # 地质尺度约束
+        self.fine_features_extractor = None  # 微观特征提取器
+        
+    def add_geology_constraint(self, constraint: Callable):
+        """添加地质尺度转换约束（如质量守恒、动量守恒）"""
+        self.geology_constraints.append(constraint)
+        print(f"✅ 添加地质约束: {constraint.__name__ if hasattr(constraint, '__name__') else 'custom'}")
+    
+    def set_fine_features_extractor(self, extractor: Callable):
+        """设置微观特征提取器"""
+        self.fine_features_extractor = extractor
+        print(f"✅ 设置微观特征提取器: {extractor.__name__ if hasattr(extractor, '__name__') else 'custom'}")
     
     def setup_bridge_model(self, input_dim: int, output_dim: int, model_type: str = 'neural_network'):
         """设置桥接模型"""
@@ -1026,29 +1263,136 @@ class GeologicalMultiScaleBridge:
             )
         elif model_type == 'surrogate':
             self.bridge_model = GeologicalSurrogateModel('gaussian_process')
+        elif model_type == 'random_forest':
+            self.bridge_model = GeologicalSurrogateModel('random_forest', n_estimators=200)
+        elif model_type == 'gradient_boosting':
+            self.bridge_model = GeologicalSurrogateModel('gradient_boosting')
         else:
             raise ValueError(f"不支持的桥接模型类型: {model_type}")
+        
+        print(f"✅ 设置桥接模型: {model_type}, 输入维度: {input_dim}, 输出维度: {output_dim}")
     
-    def train_bridge(self, fine_data: np.ndarray, coarse_data: np.ndarray, **kwargs) -> dict:
-        """训练桥接模型"""
+    def train_bridge(self, fine_scale_data: np.ndarray, coarse_scale_params: np.ndarray, **kwargs) -> dict:
+        """
+        训练尺度桥接模型：从微观数据映射到宏观参数
+        
+        Args:
+            fine_scale_data: 微观模拟结果（如岩石孔隙度分布）
+            coarse_scale_params: 宏观等效参数（如等效黏度、渗透率）
+        """
         if self.bridge_model is None:
             raise ValueError("桥接模型尚未设置")
         
-        if isinstance(self.bridge_model, GeologicalPINN):
-            self.bridge_model.setup_training()
-            result = self.bridge_model.train(fine_data, coarse_data, **kwargs)
+        # 提取微观特征（如孔隙度均值、梯度、各向异性）
+        if self.fine_features_extractor is not None:
+            fine_features = self.fine_features_extractor(fine_scale_data)
         else:
-            result = self.bridge_model.train(fine_data, coarse_data, **kwargs)
+            fine_features = self._extract_fine_features(fine_scale_data)
+        
+        print(f"   微观特征维度: {fine_features.shape}")
+        print(f"   宏观参数维度: {coarse_scale_params.shape}")
+        
+        # 训练桥接模型，同时施加地质约束
+        if self.bridge_type == 'neural_network' and isinstance(self.bridge_model, GeologicalPINN):
+            # 设置物理约束
+            if self.geology_constraints:
+                self.bridge_model.physics_equations = self.geology_constraints
+                print(f"   应用地质约束: {len(self.geology_constraints)} 个")
+            
+            # 训练PINN
+            self.bridge_model.setup_training()
+            result = self.bridge_model.train(
+                fine_features, coarse_scale_params, 
+                physics_weight=1.0,  # 地质约束权重
+                **kwargs
+            )
+        else:
+            # 训练其他类型的代理模型
+            result = self.bridge_model.train(fine_features, coarse_scale_params, **kwargs)
         
         self.is_trained = True
         return result
+    
+    def _extract_fine_features(self, fine_data: np.ndarray) -> np.ndarray:
+        """从微观数据中提取对宏观有效的特征（地质领域知识）"""
+        features = []
+        
+        for sample in fine_data:
+            sample_features = []
+            
+            # 基础统计特征
+            sample_features.extend([
+                np.mean(sample),           # 均值
+                np.std(sample),            # 标准差
+                np.percentile(sample, 25), # 25分位数
+                np.percentile(sample, 75), # 75分位数
+                np.max(sample),            # 最大值
+                np.min(sample)             # 最小值
+            ])
+            
+            # 空间梯度特征（反映非均匀性）
+            if sample.ndim > 1:
+                # 计算空间梯度
+                if sample.ndim == 2:  # 2D数据
+                    grad_x = np.gradient(sample, axis=1)
+                    grad_y = np.gradient(sample, axis=0)
+                    gradient_magnitude = np.sqrt(grad_x**2 + grad_y**2)
+                elif sample.ndim == 3:  # 3D数据
+                    grad_x = np.gradient(sample, axis=2)
+                    grad_y = np.gradient(sample, axis=1)
+                    grad_z = np.gradient(sample, axis=0)
+                    gradient_magnitude = np.sqrt(grad_x**2 + grad_y**2 + grad_z**2)
+                else:
+                    gradient_magnitude = np.zeros_like(sample)
+                
+                sample_features.extend([
+                    np.mean(gradient_magnitude),  # 平均梯度强度
+                    np.std(gradient_magnitude),   # 梯度强度标准差
+                    np.max(gradient_magnitude)    # 最大梯度强度
+                ])
+            else:
+                # 1D数据
+                gradient = np.gradient(sample)
+                sample_features.extend([
+                    np.mean(np.abs(gradient)),    # 平均梯度强度
+                    np.std(gradient),             # 梯度标准差
+                    np.max(np.abs(gradient))      # 最大梯度强度
+                ])
+            
+            # 各向异性特征（地质结构特征）
+            if sample.ndim > 1:
+                # 计算不同方向的方差
+                if sample.ndim == 2:
+                    var_x = np.var(sample, axis=1)  # 沿x方向方差
+                    var_y = np.var(sample, axis=0)  # 沿y方向方差
+                    anisotropy = np.std(var_x) / (np.std(var_y) + 1e-10)  # 各向异性比
+                elif sample.ndim == 3:
+                    var_x = np.var(sample, axis=(1, 2))  # 沿x方向方差
+                    var_y = np.var(sample, axis=(0, 2))  # 沿y方向方差
+                    var_z = np.var(sample, axis=(0, 1))  # 沿z方向方差
+                    anisotropy = np.std([np.std(var_x), np.std(var_y), np.std(var_z)])
+                
+                sample_features.append(anisotropy)
+            else:
+                sample_features.append(0.0)  # 1D数据无各向异性
+            
+            features.append(sample_features)
+        
+        return np.array(features)
     
     def predict_coarse_from_fine(self, fine_data: np.ndarray) -> np.ndarray:
         """从细尺度数据预测粗尺度数据"""
         if not self.is_trained:
             raise ValueError("桥接模型尚未训练")
         
-        return self.bridge_model.predict(fine_data)
+        # 提取微观特征
+        if self.fine_features_extractor is not None:
+            fine_features = self.fine_features_extractor(fine_data)
+        else:
+            fine_features = self._extract_fine_features(fine_data)
+        
+        # 预测宏观参数
+        return self.bridge_model.predict(fine_features)
     
     def predict_fine_from_coarse(self, coarse_data: np.ndarray) -> np.ndarray:
         """从粗尺度数据预测细尺度数据"""
@@ -1062,6 +1406,17 @@ class GeologicalMultiScaleBridge:
     def set_scale_ratio(self, ratio: float):
         """设置尺度比例"""
         self.scale_ratio = ratio
+        print(f"✅ 设置地质尺度比: 1:{ratio}")
+    
+    def get_bridge_info(self) -> dict:
+        """获取桥接器信息"""
+        return {
+            'bridge_type': self.bridge_type,
+            'scale_ratio': self.scale_ratio,
+            'is_trained': self.is_trained,
+            'geology_constraints': len(self.geology_constraints),
+            'fine_features_extractor': self.fine_features_extractor is not None
+        }
 
 
 class GeologicalHybridAccelerator:
@@ -1449,6 +1804,348 @@ class GeologicalAdaptiveSolver:
         return summary
 
 
+class GeologicalGNN(BaseSolver, nn.Module):
+    """
+    地质图神经网络 - 专门用于处理地质体的拓扑结构
+    
+    核心思想：利用图神经网络处理地质体的复杂拓扑关系（如断层网络、裂隙分布），
+    提升复杂几何场景的模拟精度，实现"结构感知"的地质建模
+    """
+    
+    def __init__(self, node_features: int, edge_features: int, hidden_dim: int = 64, 
+                 num_layers: int = 3, output_dim: int = 1, gnn_type: str = 'gcn'):
+        BaseSolver.__init__(self)
+        nn.Module.__init__(self)
+        
+        if not HAS_PYTORCH:
+            raise ImportError("需要安装PyTorch来使用地质GNN")
+        
+        self.node_features = node_features
+        self.edge_features = edge_features
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.output_dim = output_dim
+        self.gnn_type = gnn_type
+        
+        # 图卷积层
+        self.gnn_layers = nn.ModuleList()
+        
+        if gnn_type == 'gcn':
+            # 图卷积网络
+            for i in range(num_layers):
+                if i == 0:
+                    in_dim = node_features
+                else:
+                    in_dim = hidden_dim
+                
+                self.gnn_layers.append(
+                    nn.Sequential(
+                        nn.Linear(in_dim, hidden_dim),
+                        nn.ReLU(),
+                        nn.Dropout(0.1)
+                    )
+                )
+        
+        elif gnn_type == 'gat':
+            # 图注意力网络
+            for i in range(num_layers):
+                if i == 0:
+                    in_dim = node_features
+                else:
+                    in_dim = hidden_dim
+                
+                self.gnn_layers.append(
+                    nn.Sequential(
+                        nn.Linear(in_dim, hidden_dim),
+                        nn.ReLU(),
+                        nn.Dropout(0.1)
+                    )
+                )
+        
+        # 边特征处理
+        if edge_features > 0:
+            self.edge_encoder = nn.Sequential(
+                nn.Linear(edge_features, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+        
+        # 输出层
+        self.output_layer = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim // 2, output_dim)
+        )
+        
+        # 地质特定的注意力机制
+        self.geological_attention = nn.MultiheadAttention(
+            embed_dim=hidden_dim, 
+            num_heads=4, 
+            dropout=0.1
+        )
+        
+        self.to(self.device)
+        
+        print(f"🔄 地质GNN初始化完成 - 设备: {self.device}")
+        print(f"   节点特征: {node_features}, 边特征: {edge_features}")
+        print(f"   隐藏维度: {hidden_dim}, 层数: {num_layers}")
+        print(f"   GNN类型: {gnn_type}")
+    
+    def forward(self, node_features: torch.Tensor, edge_index: torch.Tensor, 
+                edge_features: torch.Tensor = None, batch: torch.Tensor = None) -> torch.Tensor:
+        """
+        前向传播
+        
+        Args:
+            node_features: 节点特征 [num_nodes, node_features]
+            edge_index: 边索引 [2, num_edges]
+            edge_features: 边特征 [num_edges, edge_features] (可选)
+            batch: 批次索引 [num_nodes] (可选)
+        """
+        x = node_features
+        
+        # 边特征编码
+        if edge_features is not None and hasattr(self, 'edge_encoder'):
+            edge_embeddings = self.edge_encoder(edge_features)
+        else:
+            edge_embeddings = None
+        
+        # 图卷积层
+        for i, layer in enumerate(self.gnn_layers):
+            if self.gnn_type == 'gcn':
+                x = self._gcn_layer(x, edge_index, edge_embeddings, layer)
+            elif self.gnn_type == 'gat':
+                x = self._gat_layer(x, edge_index, edge_embeddings, layer)
+            
+            # 地质特定的注意力机制
+            if i == self.num_layers - 1:  # 最后一层应用注意力
+                x = self._apply_geological_attention(x, batch)
+        
+        # 输出层
+        x = self.output_layer(x)
+        
+        return x
+    
+    def _gcn_layer(self, x: torch.Tensor, edge_index: torch.Tensor, 
+                   edge_embeddings: torch.Tensor, layer: nn.Module) -> torch.Tensor:
+        """图卷积层"""
+        # 简化的图卷积实现
+        # 在实际应用中，建议使用torch_geometric库
+        
+        # 计算邻接矩阵
+        num_nodes = x.size(0)
+        adj = torch.zeros(num_nodes, num_nodes, device=x.device)
+        adj[edge_index[0], edge_index[1]] = 1.0
+        
+        # 添加自环
+        adj = adj + torch.eye(num_nodes, device=x.device)
+        
+        # 归一化
+        degree = adj.sum(dim=1, keepdim=True)
+        degree = torch.clamp(degree, min=1e-12)
+        adj_norm = adj / degree.sqrt()
+        
+        # 图卷积
+        x = torch.mm(adj_norm, x)
+        x = layer(x)
+        
+        return x
+    
+    def _gat_layer(self, x: torch.Tensor, edge_index: torch.Tensor, 
+                   edge_embeddings: torch.Tensor, layer: nn.Module) -> torch.Tensor:
+        """图注意力层"""
+        # 简化的图注意力实现
+        # 在实际应用中，建议使用torch_geometric库
+        
+        # 基础变换
+        x = layer(x)
+        
+        # 简单的注意力机制
+        if edge_embeddings is not None:
+            # 使用边特征增强节点表示
+            edge_weights = torch.sigmoid(edge_embeddings.mean(dim=1))
+            x = x + torch.scatter_add(
+                torch.zeros_like(x), 0, 
+                edge_index[1].unsqueeze(1).expand(-1, x.size(1)), 
+                x[edge_index[0]] * edge_weights.unsqueeze(1)
+            )
+        
+        return x
+    
+    def _apply_geological_attention(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
+        """应用地质特定的注意力机制"""
+        if batch is not None:
+            # 批次处理
+            batch_size = batch.max().item() + 1
+            x_batched = []
+            
+            for i in range(batch_size):
+                mask = (batch == i)
+                if mask.sum() > 0:
+                    x_i = x[mask]
+                    # 应用自注意力
+                    x_i_attended, _ = self.geological_attention(
+                        x_i.unsqueeze(0), x_i.unsqueeze(0), x_i.unsqueeze(0)
+                    )
+                    x_batched.append(x_i_attended.squeeze(0))
+            
+            if x_batched:
+                x = torch.cat(x_batched, dim=0)
+        else:
+            # 全局注意力
+            x_attended, _ = self.geological_attention(
+                x.unsqueeze(0), x.unsqueeze(0), x.unsqueeze(0)
+            )
+            x = x_attended.squeeze(0)
+        
+        return x
+    
+    def train(self, node_features: np.ndarray, edge_index: np.ndarray, 
+              target: np.ndarray, edge_features: np.ndarray = None,
+              epochs: int = 100, batch_size: int = 32, learning_rate: float = 0.001) -> dict:
+        """训练地质GNN"""
+        # 验证输入数据
+        if node_features.shape[0] != target.shape[0]:
+            raise ValueError(f"节点特征和目标的节点数不匹配：{node_features.shape[0]} vs {target.shape[0]}")
+        
+        # 转换为张量
+        node_features_tensor = torch.FloatTensor(node_features).to(self.device)
+        edge_index_tensor = torch.LongTensor(edge_index).to(self.device)
+        target_tensor = torch.FloatTensor(target).to(self.device)
+        
+        if edge_features is not None:
+            edge_features_tensor = torch.FloatTensor(edge_features).to(self.device)
+        else:
+            edge_features_tensor = None
+        
+        # 优化器和损失函数
+        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+        criterion = nn.MSELoss()
+        
+        history = {'loss': [], 'train_time': 0.0}
+        start_time = time.time()
+        
+        for epoch in range(epochs):
+            self.train()
+            optimizer.zero_grad()
+            
+            # 前向传播
+            outputs = self.forward(node_features_tensor, edge_index_tensor, edge_features_tensor)
+            
+            # 计算损失
+            loss = criterion(outputs, target_tensor)
+            
+            # 反向传播
+            loss.backward()
+            optimizer.step()
+            
+            history['loss'].append(loss.item())
+            
+            if (epoch + 1) % 20 == 0:
+                print(f"   Epoch {epoch+1}/{epochs}: loss={loss.item():.6f}")
+        
+        history['train_time'] = time.time() - start_time
+        self.is_trained = True
+        
+        print(f"✅ 地质GNN训练完成，耗时: {history['train_time']:.4f}秒")
+        return history
+    
+    def predict(self, node_features: np.ndarray, edge_index: np.ndarray, 
+                edge_features: np.ndarray = None) -> np.ndarray:
+        """预测"""
+        self.eval()
+        with torch.no_grad():
+            node_features_tensor = torch.FloatTensor(node_features).to(self.device)
+            edge_index_tensor = torch.LongTensor(edge_index).to(self.device)
+            
+            if edge_features is not None:
+                edge_features_tensor = torch.FloatTensor(edge_features).to(self.device)
+            else:
+                edge_features_tensor = None
+            
+            outputs = self.forward(node_features_tensor, edge_index_tensor, edge_features_tensor)
+            return outputs.cpu().numpy()
+    
+    def create_geological_graph(self, spatial_coords: np.ndarray, 
+                               geological_features: np.ndarray,
+                               connectivity_radius: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        创建地质图结构
+        
+        Args:
+            spatial_coords: 空间坐标 [num_points, 3]
+            geological_features: 地质特征 [num_points, num_features]
+            connectivity_radius: 连接半径
+            
+        Returns:
+            edge_index: 边索引 [2, num_edges]
+            edge_features: 边特征 [num_edges, edge_dim]
+        """
+        num_points = spatial_coords.shape[0]
+        
+        # 计算点之间的距离
+        distances = np.zeros((num_points, num_points))
+        for i in range(num_points):
+            for j in range(i+1, num_points):
+                dist = np.linalg.norm(spatial_coords[i] - spatial_coords[j])
+                distances[i, j] = dist
+                distances[j, i] = dist
+        
+        # 创建边（基于距离阈值）
+        edges = []
+        edge_features = []
+        
+        for i in range(num_points):
+            for j in range(num_points):
+                if i != j and distances[i, j] <= connectivity_radius:
+                    edges.append([i, j])
+                    
+                    # 边特征：距离、地质特征差异
+                    edge_feat = [
+                        distances[i, j],
+                        np.mean(np.abs(geological_features[i] - geological_features[j]))
+                    ]
+                    edge_features.append(edge_feat)
+        
+        if edges:
+            edge_index = np.array(edges).T
+            edge_features = np.array(edge_features)
+        else:
+            edge_index = np.array([[0], [0]])  # 空图
+            edge_features = np.array([[0, 0]])
+        
+        print(f"   创建地质图: {num_points} 个节点, {edge_index.shape[1]} 条边")
+        return edge_index, edge_features
+    
+    def analyze_topology(self, node_features: np.ndarray, edge_index: np.ndarray) -> Dict:
+        """分析地质拓扑结构"""
+        analysis = {}
+        
+        # 节点统计
+        analysis['num_nodes'] = node_features.shape[0]
+        analysis['num_edges'] = edge_index.shape[1]
+        
+        # 度分布
+        degrees = np.zeros(node_features.shape[0])
+        for i in range(edge_index.shape[1]):
+            degrees[edge_index[0, i]] += 1
+            degrees[edge_index[1, i]] += 1
+        
+        analysis['avg_degree'] = np.mean(degrees)
+        analysis['max_degree'] = np.max(degrees)
+        analysis['min_degree'] = np.min(degrees)
+        
+        # 连通性分析
+        if edge_index.shape[1] > 0:
+            # 简化的连通性检查
+            connected_nodes = set(edge_index.flatten())
+            analysis['connectivity'] = len(connected_nodes) / node_features.shape[0]
+        else:
+            analysis['connectivity'] = 0.0
+        
+        return analysis
+
+
 def create_geological_ml_system() -> Dict:
     """创建地质ML系统"""
     system = {
@@ -1458,6 +2155,7 @@ def create_geological_ml_system() -> Dict:
         'bridge': GeologicalMultiScaleBridge,
         'hybrid': GeologicalHybridAccelerator,
         'adaptive': GeologicalAdaptiveSolver,  # 新增：地质自适应求解器
+        'gnn': GeologicalGNN,  # 新增：地质图神经网络
         'physics_equations': GeologicalPhysicsEquations
     }
     
@@ -1629,6 +2327,60 @@ def demo_geological_ml():
         
     except Exception as e:
         print(f"   ❌ 地质自适应求解器失败: {e}")
+    
+    # 7. 测试地质GNN（新增）
+    print("\n🔧 测试地质GNN...")
+    try:
+        # 生成地质图数据
+        n_points = 200
+        spatial_coords = np.random.rand(n_points, 3) * 10.0  # 3D空间坐标
+        geological_features = np.random.rand(n_points, 5)    # 地质特征（孔隙度、渗透率等）
+        
+        # 创建GNN模型
+        gnn = ml_system['gnn'](
+            node_features=5,      # 地质特征维度
+            edge_features=2,      # 边特征维度（距离、特征差异）
+            hidden_dim=32,
+            num_layers=2,
+            output_dim=1,
+            gnn_type='gcn'
+        )
+        
+        # 创建地质图结构
+        edge_index, edge_features = gnn.create_geological_graph(
+            spatial_coords, geological_features, connectivity_radius=2.0
+        )
+        
+        # 分析拓扑结构
+        topology_analysis = gnn.analyze_topology(geological_features, edge_index)
+        print(f"   拓扑分析结果:")
+        print(f"     节点数: {topology_analysis['num_nodes']}")
+        print(f"     边数: {topology_analysis['num_edges']}")
+        print(f"     平均度: {topology_analysis['avg_degree']:.2f}")
+        print(f"     连通性: {topology_analysis['connectivity']:.2f}")
+        
+        # 生成目标数据（模拟地质场值）
+        target = np.random.randn(n_points, 1)
+        
+        # 训练GNN
+        print("   训练地质GNN...")
+        training_history = gnn.train(
+            geological_features, edge_index, target, edge_features,
+            epochs=50, learning_rate=0.001
+        )
+        
+        print(f"   训练完成，最终损失: {training_history['loss'][-1]:.6f}")
+        
+        # 测试预测
+        predictions = gnn.predict(geological_features, edge_index, edge_features)
+        print(f"   预测形状: {predictions.shape}")
+        
+        # 计算预测精度
+        mse = np.mean((predictions - target)**2)
+        print(f"   预测MSE: {mse:.6f}")
+        
+    except Exception as e:
+        print(f"   ❌ 地质GNN失败: {e}")
     
     print("\n✅ 地质数值模拟ML/DL融合演示完成!")
 

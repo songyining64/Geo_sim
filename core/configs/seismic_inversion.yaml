@@ -1,0 +1,271 @@
+# 地震反演配置模板
+name: "seismic_inversion"
+description: "地震数据反演配置 - 包含波形反演、全波形反演、弹性参数反演等"
+version: "1.0.0"
+
+# 物理参数
+physics_params:
+  # 弹性参数
+  elastic:
+    p_wave_velocity_range: [1500.0, 6000.0]    # P波速度范围 (m/s)
+    s_wave_velocity_range: [500.0, 3500.0]     # S波速度范围 (m/s)
+    density_range: [1800.0, 2800.0]            # 密度范围 (kg/m³)
+    poisson_ratio_range: [0.1, 0.45]           # 泊松比范围
+  
+  # 衰减参数
+  attenuation:
+    qp_range: [10.0, 200.0]                    # P波品质因子范围
+    qs_range: [5.0, 100.0]                     # S波品质因子范围
+    frequency_dependent: true                   # 是否频率相关
+  
+  # 各向异性参数
+  anisotropy:
+    enabled: false                              # 是否启用各向异性
+    thomsen_parameters:                         # Thomsen参数
+      epsilon_range: [-0.2, 0.3]               # ε参数范围
+      delta_range: [-0.2, 0.3]                 # δ参数范围
+      gamma_range: [-0.2, 0.3]                 # γ参数范围
+  
+  # 孔隙弹性参数
+  poroelastic:
+    enabled: false                              # 是否启用孔隙弹性
+    porosity_range: [0.0, 0.4]                 # 孔隙度范围
+    permeability_range: [1e-20, 1e-12]         # 渗透率范围 (m²)
+
+# 数值参数
+numerical_params:
+  # 反演参数
+  inversion:
+    max_iterations: 100                         # 最大迭代次数
+    tolerance: 1.0e-6                           # 收敛容差
+    step_size: 0.1                              # 步长
+    regularization_weight: 0.01                 # 正则化权重
+  
+  # 优化算法参数
+  optimization:
+    algorithm: "lbfgs"                          # 优化算法: lbfgs, cg, newton
+    line_search: "wolfe"                        # 线搜索: wolfe, armijo
+    hessian_approximation: "bfgs"               # Hessian近似: bfgs, sr1, exact
+  
+  # 线性求解器参数
+  linear_solver:
+    type: "direct"                              # 求解器类型: direct, iterative
+    preconditioner: "ilu"                        # 预处理器
+    max_iterations: 1000                        # 最大迭代次数
+    tolerance: 1.0e-8                           # 收敛容差
+
+# 数据参数
+data_params:
+  # 观测数据
+  observed_data:
+    file_path: "./data/observed_seismic.su"     # 观测数据文件路径
+    format: "su"                                # 数据格式: su, segy, h5
+    sampling_rate: 0.004                        # 采样率 (秒)
+    trace_length: 2000                          # 道长度 (采样点数)
+    num_traces: 100                             # 道数
+  
+  # 合成数据
+  synthetic_data:
+    enabled: true                               # 是否生成合成数据
+    source_type: "ricker"                       # 震源类型: ricker, gaussian, custom
+    source_frequency: 25.0                      # 震源主频 (Hz)
+    source_amplitude: 1.0                       # 震源振幅
+  
+  # 噪声参数
+  noise:
+    enabled: true                               # 是否添加噪声
+    snr: 20.0                                   # 信噪比 (dB)
+    noise_type: "gaussian"                      # 噪声类型: gaussian, colored
+
+# 模型参数
+model_params:
+  # 网格参数
+  grid:
+    type: "regular"                             # 网格类型: regular, irregular
+    dimensions: [100, 100, 50]                  # 网格尺寸 [nx, ny, nz]
+    spacing: [10.0, 10.0, 5.0]                 # 网格间距 [dx, dy, dz] (米)
+    total_size: [1000.0, 1000.0, 250.0]        # 总尺寸 [Lx, Ly, Lz] (米)
+  
+  # 初始模型
+  initial_model:
+    type: "smooth"                              # 初始模型类型: smooth, layered, random
+    smoothing_factor: 0.1                       # 平滑因子
+    reference_model: "velocity_model.vp"        # 参考模型文件
+  
+  # 先验信息
+  prior_information:
+    enabled: true                               # 是否使用先验信息
+    well_logs: []                               # 测井数据
+    geological_constraints: []                  # 地质约束
+    velocity_trends: []                         # 速度趋势
+
+# 边界条件
+boundary_conditions:
+  # 自由表面
+  free_surface:
+    enabled: true                               # 是否启用自由表面
+    absorbing: false                            # 是否吸收边界
+  
+  # 吸收边界
+  absorbing_boundary:
+    enabled: true                               # 是否启用吸收边界
+    type: "pml"                                 # 吸收边界类型: pml, sponge
+    thickness: 20                               # 吸收边界厚度 (网格点数)
+    damping_factor: 0.1                         # 阻尼因子
+  
+  # 周期性边界
+  periodic_boundary:
+    enabled: false                              # 是否启用周期性边界
+    directions: []                              # 周期性方向
+
+# 震源参数
+source_params:
+  # 震源位置
+  positions:                                    # 震源位置列表
+    - [100, 100, 10]                           # [x, y, z] (米)
+    - [300, 100, 10]
+    - [500, 100, 10]
+    - [700, 100, 10]
+    - [900, 100, 10]
+  
+  # 震源时间函数
+  time_function:
+    type: "ricker"                              # 时间函数类型: ricker, gaussian, custom
+    peak_frequency: 25.0                        # 峰值频率 (Hz)
+    amplitude: 1.0                              # 振幅
+    phase: 0.0                                  # 相位 (弧度)
+  
+  # 震源机制
+  mechanism:
+    type: "explosive"                           # 震源机制: explosive, force, moment_tensor
+    components: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # 震源分量
+
+# 接收器参数
+receiver_params:
+  # 接收器位置
+  positions:                                    # 接收器位置列表
+    - [100, 900, 10]                           # [x, y, z] (米)
+    - [300, 900, 10]
+    - [500, 900, 10]
+    - [700, 900, 10]
+    - [900, 900, 10]
+  
+  # 接收器类型
+  type: "pressure"                              # 接收器类型: pressure, velocity, displacement
+  
+  # 接收器响应
+  response:
+    frequency_range: [1.0, 100.0]              # 频率响应范围 (Hz)
+    phase_response: "linear"                    # 相位响应: linear, minimum_phase
+
+# 输出设置
+output_params:
+  save_frequency: 10                            # 保存频率 (每N次迭代保存一次)
+  output_dir: "./seismic_inversion_output"      # 输出目录
+  save_format: "h5"                             # 保存格式: h5, npz, vtk
+  
+  # 保存的变量
+  save_variables:
+    - "velocity_model"
+    - "density_model"
+    - "gradient"
+    - "hessian"
+    - "misfit_history"
+    - "convergence_history"
+  
+  # 中间结果
+  intermediate_results:
+    save_intermediate: true                     # 是否保存中间结果
+    save_frequency: 5                           # 中间结果保存频率
+
+# 可视化设置
+visualization_params:
+  plot_frequency: 10                            # 绘图频率
+  show_plots: true                              # 是否显示图形
+  save_plots: true                              # 是否保存图形
+  plot_style: "seaborn"                         # 绘图样式
+  
+  # 实时监控
+  realtime_monitoring:
+    enabled: true                               # 是否启用实时监控
+    update_interval: 2.0                        # 更新间隔 (秒)
+    monitor_variables:                          # 监控的变量
+      - "misfit"
+      - "gradient_norm"
+      - "step_size"
+      - "convergence_rate"
+  
+  # 3D可视化
+  3d_visualization:
+    enabled: true                               # 是否启用3D可视化
+    camera_position: [5, 5, 5]                 # 相机位置
+    background_color: "black"                   # 背景颜色
+    show_grid: true                             # 是否显示网格
+    show_axes: true                             # 是否显示坐标轴
+
+# 质量控制设置
+quality_control:
+  # 数据质量检查
+  data_quality:
+    enabled: true                               # 是否启用数据质量检查
+    min_snr: 10.0                               # 最小信噪比 (dB)
+    max_gap_ratio: 0.1                          # 最大间隙比例
+  
+  # 模型质量检查
+  model_quality:
+    enabled: true                               # 是否启用模型质量检查
+    velocity_gradient_limit: 1000.0             # 速度梯度限制 (m/s/m)
+    density_gradient_limit: 500.0               # 密度梯度限制 (kg/m³/m)
+  
+  # 反演质量检查
+  inversion_quality:
+    enabled: true                               # 是否启用反演质量检查
+    min_misfit_reduction: 0.1                   # 最小失配减少
+    max_gradient_norm: 1e6                      # 最大梯度范数
+
+# 性能优化设置
+performance:
+  # 并行计算
+  parallel:
+    enabled: true                               # 是否启用并行计算
+    num_processes: 8                            # 进程数
+    domain_decomposition: "metis"               # 域分解方法
+  
+  # GPU加速
+  gpu_acceleration:
+    enabled: false                              # 是否启用GPU加速
+    device: "cuda:0"                            # GPU设备
+    mixed_precision: false                      # 是否使用混合精度
+  
+  # 内存优化
+  memory_optimization:
+    enabled: true                               # 是否启用内存优化
+    chunk_size: 500                             # 分块大小
+    compression: true                            # 是否启用压缩
+
+# 正则化设置
+regularization:
+  # Tikhonov正则化
+  tikhonov:
+    enabled: true                               # 是否启用Tikhonov正则化
+    weight: 0.01                                # 正则化权重
+    order: 2                                    # 正则化阶数
+  
+  # 总变分正则化
+  total_variation:
+    enabled: false                              # 是否启用总变分正则化
+    weight: 0.001                               # 正则化权重
+    epsilon: 1e-6                               # 平滑参数
+  
+  # 结构约束
+  structural_constraints:
+    enabled: false                              # 是否启用结构约束
+    dip_constraints: []                         # 倾角约束
+    fault_constraints: []                       # 断层约束
+
+# 多尺度策略
+multiscale_strategy:
+  enabled: true                                 # 是否启用多尺度策略
+  levels: 3                                     # 多尺度层数
+  coarsening_factor: 2                          # 粗化因子
+  refinement_criteria: "gradient"               # 细化准则: gradient, misfit, resolution

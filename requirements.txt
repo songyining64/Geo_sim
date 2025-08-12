@@ -18,6 +18,7 @@ cupy-cuda11x  # 根据CUDA版本选择，可选: cupy-cuda11x, cupy-cuda12x
 pyopencl>=2022.1.0
 torchvision>=0.11.0
 torchaudio>=0.11.0
+GPUtil>=1.4.0  # GPU使用率监控（可选）
 
 # ML优化专用库
 optuna>=3.0.0          # 超参数优化
@@ -30,6 +31,12 @@ catboost>=1.1.0        # CatBoost
 keras>=2.8.0           # 高级神经网络API
 transformers>=4.20.0   # 预训练模型
 accelerate>=0.12.0     # 分布式训练
+
+# 强化学习和图神经网络
+stable-baselines3>=1.6.0  # 强化学习算法库
+gym>=0.21.0               # 强化学习环境
+torch-geometric>=2.0.0    # 图神经网络（PyTorch）
+networkx>=2.6.0           # 图论和网络分析
 
 # 贝叶斯优化和不确定性量化
 emukit>=0.4.0          # 贝叶斯优化
@@ -50,6 +57,7 @@ vtk>=9.0.0
 numba>=0.56.0
 cython>=0.29.0
 joblib>=1.1.0
+psutil>=5.8.0  # 系统资源监控
 
 # 数值求解器
 pypardiso>=0.3.0

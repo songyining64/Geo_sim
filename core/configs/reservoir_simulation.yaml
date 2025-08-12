@@ -1,0 +1,262 @@
+# 油气藏模拟配置模板
+name: "reservoir_simulation"
+description: "油气藏数值模拟配置 - 包含多相流体流动、热传导、力学变形等物理过程"
+version: "1.0.0"
+
+# 物理参数
+physics_params:
+  # 流体参数
+  fluid:
+    oil_viscosity: 1.0e-3      # 油粘度 (Pa·s)
+    water_viscosity: 1.0e-3    # 水粘度 (Pa·s)
+    gas_viscosity: 1.0e-5      # 气粘度 (Pa·s)
+    oil_density: 850.0          # 油密度 (kg/m³)
+    water_density: 1000.0       # 水密度 (kg/m³)
+    gas_density: 1.2            # 气密度 (kg/m³)
+    oil_compressibility: 1.0e-9 # 油压缩系数 (1/Pa)
+    water_compressibility: 4.5e-10 # 水压缩系数 (1/Pa)
+    gas_compressibility: 1.0e-6 # 气压缩系数 (1/Pa)
+  
+  # 岩石参数
+  rock:
+    porosity: 0.2               # 孔隙度
+    permeability: 1.0e-12       # 渗透率 (m²)
+    thermal_conductivity: 2.0   # 热导率 (W/m·K)
+    specific_heat: 920.0        # 比热容 (J/kg·K)
+    thermal_expansion: 2.4e-5   # 热膨胀系数 (1/K)
+    young_modulus: 20.0e9      # 杨氏模量 (Pa)
+    poisson_ratio: 0.25         # 泊松比
+  
+  # 毛细管压力参数 (Brooks-Corey模型)
+  capillary_pressure:
+    brooks_corey_lambda: 2.0    # Brooks-Corey参数
+    entry_pressure: 5000.0      # 入口压力 (Pa)
+    residual_saturation_water: 0.2  # 残余水饱和度
+    residual_saturation_oil: 0.1    # 残余油饱和度
+  
+  # 相对渗透率参数 (Corey模型)
+  relative_permeability:
+    corey_exponent_water: 2.0   # 水相对渗透率指数
+    corey_exponent_oil: 2.0     # 油相对渗透率指数
+    corey_exponent_gas: 2.0     # 气相对渗透率指数
+
+# 数值参数
+numerical_params:
+  time_steps: 1000              # 总时间步数
+  dt: 86400.0                   # 时间步长 (秒, 1天)
+  tolerance: 1.0e-6             # 收敛容差
+  max_iterations: 50            # 最大迭代次数
+  newton_tolerance: 1.0e-8      # 牛顿迭代容差
+  newton_max_iterations: 10     # 牛顿迭代最大次数
+  
+  # 线性求解器参数
+  linear_solver:
+    type: "gmres"               # 求解器类型: cg, gmres, bicgstab
+    preconditioner: "ilu"        # 预处理器: jacobi, ilu, amg
+    max_iterations: 1000        # 最大迭代次数
+    tolerance: 1.0e-8           # 收敛容差
+
+# 边界条件
+boundary_conditions:
+  # 压力边界条件
+  pressure:
+    top: "dirichlet"            # 顶部: dirichlet, neumann, free
+    bottom: "dirichlet"         # 底部
+    left: "neumann"             # 左侧
+    right: "neumann"            # 右侧
+    front: "neumann"            # 前侧
+    back: "neumann"             # 后侧
+    values:
+      top: 1.0e6                # 顶部压力值 (Pa)
+      bottom: 2.0e7             # 底部压力值 (Pa)
+  
+  # 温度边界条件
+  temperature:
+    top: "dirichlet"
+    bottom: "dirichlet"
+    values:
+      top: 298.15               # 顶部温度 (K, 25°C)
+      bottom: 373.15            # 底部温度 (K, 100°C)
+  
+  # 饱和度边界条件
+  saturation:
+    oil: "neumann"              # 油饱和度边界条件
+    water: "neumann"            # 水饱和度边界条件
+    gas: "neumann"              # 气饱和度边界条件
+
+# 输出设置
+output_params:
+  save_frequency: 10            # 保存频率 (每N步保存一次)
+  output_dir: "./reservoir_output"  # 输出目录
+  save_format: "h5"             # 保存格式: h5, npz, csv
+  save_variables:               # 保存的变量
+    - "pressure"
+    - "temperature"
+    - "oil_saturation"
+    - "water_saturation"
+    - "gas_saturation"
+    - "displacement"
+    - "stress"
+  
+  # 井数据输出
+  well_output:
+    save_well_data: true        # 是否保存井数据
+    well_data_frequency: 1      # 井数据保存频率
+    well_variables:
+      - "bottom_hole_pressure"
+      - "oil_rate"
+      - "water_rate"
+      - "gas_rate"
+
+# 可视化设置
+visualization_params:
+  plot_frequency: 20            # 绘图频率
+  show_plots: true              # 是否显示图形
+  save_plots: true              # 是否保存图形
+  plot_style: "seaborn"         # 绘图样式
+  plot_format: "png"            # 图形格式
+  
+  # 3D可视化设置
+  3d_visualization:
+    enabled: true               # 是否启用3D可视化
+    camera_position: [10, 10, 10]  # 相机位置
+    background_color: "white"   # 背景颜色
+    show_grid: true             # 是否显示网格
+    show_axes: true             # 是否显示坐标轴
+  
+  # 实时监控设置
+  realtime_monitoring:
+    enabled: true               # 是否启用实时监控
+    update_interval: 1.0        # 更新间隔 (秒)
+    monitor_variables:          # 监控的变量
+      - "pressure_residual"
+      - "temperature_residual"
+      - "saturation_residual"
+      - "convergence_history"
+      - "performance_metrics"
+
+# 网格设置
+mesh_params:
+  type: "structured"            # 网格类型: structured, unstructured
+  dimensions: [50, 50, 20]     # 网格尺寸 [nx, ny, nz]
+  size: [1000.0, 1000.0, 100.0]  # 物理尺寸 [Lx, Ly, Lz] (米)
+  refinement:
+    enabled: false              # 是否启用网格加密
+    regions: []                 # 加密区域列表
+  
+  # 断层设置
+  faults:
+    enabled: true               # 是否包含断层
+    fault_planes:               # 断层平面定义
+      - name: "fault_1"
+        points: [[0, 500, 0], [1000, 500, 100]]
+        properties:
+          permeability: 1.0e-13  # 断层渗透率 (m²)
+          aperture: 0.01         # 断层开度 (m)
+
+# 井设置
+wells:
+  - name: "injector_1"
+    type: "injector"            # 井类型: injector, producer
+    position: [100, 100, 0]     # 井位置 [x, y, z]
+    completion:                  # 完井信息
+      top: 0                    # 完井顶部深度
+      bottom: 100               # 完井底部深度
+      skin_factor: 0.0          # 表皮因子
+    schedule:                    # 生产/注入计划
+      - time: 0                 # 时间 (天)
+        rate: 100.0             # 流量 (m³/day)
+        type: "water"            # 流体类型
+  
+  - name: "producer_1"
+    type: "producer"
+    position: [900, 900, 0]
+    completion:
+      top: 0
+      bottom: 100
+      skin_factor: 0.0
+    schedule:
+      - time: 0
+        rate: -100.0            # 负值表示生产
+        type: "liquid"           # 液体总流量
+
+# 初始条件
+initial_conditions:
+  pressure: 1.5e7              # 初始压力 (Pa)
+  temperature: 323.15           # 初始温度 (K, 50°C)
+  oil_saturation: 0.7          # 初始油饱和度
+  water_saturation: 0.3        # 初始水饱和度
+  gas_saturation: 0.0          # 初始气饱和度
+  displacement: [0.0, 0.0, 0.0]  # 初始位移 [x, y, z]
+
+# 物理过程设置
+physics_processes:
+  # 流体流动
+  fluid_flow:
+    enabled: true               # 是否启用流体流动
+    model: "black_oil"          # 流体模型: black_oil, compositional
+    gravity: true               # 是否考虑重力
+    capillary_pressure: true    # 是否考虑毛细管压力
+    relative_permeability: true # 是否考虑相对渗透率
+  
+  # 热传导
+  heat_transfer:
+    enabled: true               # 是否启用热传导
+    model: "conduction"         # 热传导模型: conduction, convection
+    convection: true            # 是否考虑对流
+    radiation: false            # 是否考虑辐射
+  
+  # 力学变形
+  mechanics:
+    enabled: true               # 是否启用力学计算
+    model: "elastic"            # 力学模型: elastic, plastic, viscoelastic
+    poroelastic: true           # 是否考虑孔隙弹性
+    thermal_stress: true        # 是否考虑热应力
+  
+  # 化学反应
+  chemistry:
+    enabled: false              # 是否启用化学反应
+    model: "equilibrium"        # 化学模型: equilibrium, kinetic
+    reactions: []               # 化学反应列表
+
+# 性能优化设置
+performance:
+  # 并行计算
+  parallel:
+    enabled: true               # 是否启用并行计算
+    num_processes: 4            # 进程数
+    domain_decomposition: "metis"  # 域分解方法
+  
+  # GPU加速
+  gpu_acceleration:
+    enabled: false              # 是否启用GPU加速
+    device: "cuda:0"            # GPU设备
+    mixed_precision: false      # 是否使用混合精度
+  
+  # 内存优化
+  memory_optimization:
+    enabled: true               # 是否启用内存优化
+    chunk_size: 1000            # 分块大小
+    compression: true            # 是否启用压缩
+
+# 质量控制设置
+quality_control:
+  # 网格质量检查
+  mesh_quality:
+    enabled: true               # 是否启用网格质量检查
+    min_angle: 10.0             # 最小角度 (度)
+    max_aspect_ratio: 10.0      # 最大长宽比
+  
+  # 数值稳定性检查
+  numerical_stability:
+    enabled: true               # 是否启用数值稳定性检查
+    max_cfl: 1.0                # 最大CFL数
+    min_time_step: 1.0          # 最小时间步长 (秒)
+  
+  # 物理合理性检查
+  physics_validation:
+    enabled: true               # 是否启用物理合理性检查
+    max_pressure: 5.0e7         # 最大压力 (Pa)
+    min_pressure: 1.0e5         # 最小压力 (Pa)
+    max_temperature: 500.0      # 最大温度 (K)
+    min_temperature: 273.15     # 最小温度 (K)

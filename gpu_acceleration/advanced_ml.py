@@ -869,6 +869,433 @@ class AdaptiveMLSolver:
         return summary
 
 
+class RLAgent(nn.Module):
+    """
+    强化学习智能体 - 用于优化数值求解策略
+    
+    核心思想：通过强化学习自动选择最优的求解参数（时间步长、网格加密方案等），
+    减少人工调参成本，提升求解效率
+    """
+    
+    def __init__(self, state_dim: int, action_dim: int, hidden_dims: List[int] = [128, 64]):
+        super().__init__()
+        
+        if not HAS_PYTORCH:
+            raise ImportError("需要安装PyTorch来使用RL智能体")
+        
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Actor网络（策略网络）
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dims[0]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], action_dim),
+            nn.Tanh()  # 输出范围[-1, 1]
+        )
+        
+        # Critic网络（价值网络）
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dims[0]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], 1)
+        )
+        
+        self.to(self.device)
+        
+        print(f"🔄 RL智能体初始化完成 - 设备: {self.device}")
+        print(f"   状态维度: {state_dim}, 动作维度: {action_dim}")
+    
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        """前向传播 - 返回动作"""
+        return self.actor(state)
+    
+    def get_action(self, state: np.ndarray, noise_scale: float = 0.1) -> np.ndarray:
+        """获取动作（带探索噪声）"""
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        
+        with torch.no_grad():
+            action = self.forward(state_tensor).squeeze(0)
+            # 添加探索噪声
+            noise = torch.randn_like(action) * noise_scale
+            action = action + noise
+            # 裁剪到有效范围
+            action = torch.clamp(action, -1.0, 1.0)
+        
+        return action.cpu().numpy()
+    
+    def get_value(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """获取状态-动作价值"""
+        return self.critic(torch.cat([state, action], dim=1))
+
+
+class SolverEnvironment:
+    """
+    求解器环境 - 模拟数值求解过程，为RL提供训练环境
+    
+    核心思想：将数值求解过程建模为强化学习环境，
+    智能体通过与环境交互学习最优的求解策略
+    """
+    
+    def __init__(self, solver_config: Dict, physics_config: PhysicsConfig = None):
+        self.solver_config = solver_config
+        self.physics_config = physics_config or PhysicsConfig()
+        self.max_steps = solver_config.get('max_steps', 100)
+        self.current_step = 0
+        self.convergence_history = []
+        self.performance_metrics = {}
+        
+        # 求解策略参数范围
+        self.action_bounds = {
+            'time_step': (0.001, 0.1),      # 时间步长
+            'mesh_refinement': (0.1, 2.0),  # 网格加密因子
+            'tolerance': (1e-6, 1e-3),      # 收敛容差
+            'max_iterations': (50, 500)      # 最大迭代次数
+        }
+        
+        print(f"🔄 求解器环境初始化完成")
+        print(f"   最大步数: {self.max_steps}")
+        print(f"   动作参数: {list(self.action_bounds.keys())}")
+    
+    def reset(self) -> np.ndarray:
+        """重置环境"""
+        self.current_step = 0
+        self.convergence_history = []
+        self.performance_metrics = {}
+        
+        # 返回初始状态
+        initial_state = self._get_state()
+        return initial_state
+    
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict]:
+        """执行一步动作"""
+        if self.current_step >= self.max_steps:
+            return self._get_state(), 0.0, True, {}
+        
+        # 解析动作（从[-1,1]映射到实际参数范围）
+        solver_params = self._action_to_params(action)
+        
+        # 模拟求解过程
+        reward, metrics = self._simulate_solving(solver_params)
+        
+        # 更新状态
+        self.current_step += 1
+        self.convergence_history.append(metrics.get('convergence', 0.0))
+        self.performance_metrics.update(metrics)
+        
+        # 检查是否完成
+        done = self.current_step >= self.max_steps or metrics.get('converged', False)
+        
+        return self._get_state(), reward, done, metrics
+    
+    def _action_to_params(self, action: np.ndarray) -> Dict:
+        """将动作转换为求解器参数"""
+        params = {}
+        action_names = list(self.action_bounds.keys())
+        
+        for i, name in enumerate(action_names):
+            if i < len(action):
+                # 将[-1,1]映射到实际范围
+                action_val = action[i]
+                min_val, max_val = self.action_bounds[name]
+                param_val = min_val + (action_val + 1) * (max_val - min_val) / 2
+                params[name] = param_val
+        
+        return params
+    
+    def _simulate_solving(self, solver_params: Dict) -> Tuple[float, Dict]:
+        """模拟求解过程，计算奖励和指标"""
+        # 模拟求解时间（基于参数）
+        time_step = solver_params.get('time_step', 0.01)
+        mesh_refinement = solver_params.get('mesh_refinement', 1.0)
+        tolerance = solver_params.get('tolerance', 1e-4)
+        max_iterations = solver_params.get('max_iterations', 100)
+        
+        # 模拟收敛过程
+        convergence_rate = 1.0 / (1.0 + tolerance * 1000)  # 容差越小，收敛越快
+        mesh_efficiency = 1.0 / (1.0 + abs(mesh_refinement - 1.0))  # 网格因子接近1时效率最高
+        
+        # 模拟迭代次数
+        actual_iterations = min(max_iterations, int(50 / convergence_rate))
+        
+        # 计算奖励（综合考虑效率、精度、稳定性）
+        efficiency_reward = 1.0 / (1.0 + time_step * 100)  # 时间步长越小越好
+        accuracy_reward = 1.0 / (1.0 + tolerance * 1e6)    # 容差越小越好
+        stability_reward = 1.0 / (1.0 + abs(mesh_refinement - 1.0))  # 网格稳定性
+        
+        # 收敛奖励
+        converged = actual_iterations < max_iterations
+        convergence_reward = 10.0 if converged else 0.0
+        
+        # 总奖励
+        total_reward = (efficiency_reward + accuracy_reward + stability_reward + convergence_reward) / 4
+        
+        # 性能指标
+        metrics = {
+            'convergence': convergence_rate,
+            'mesh_efficiency': mesh_efficiency,
+            'iterations': actual_iterations,
+            'converged': converged,
+            'time_step': time_step,
+            'mesh_refinement': mesh_refinement,
+            'tolerance': tolerance
+        }
+        
+        return total_reward, metrics
+    
+    def _get_state(self) -> np.ndarray:
+        """获取当前状态"""
+        state = []
+        
+        # 当前步数（归一化）
+        state.append(self.current_step / self.max_steps)
+        
+        # 收敛历史统计
+        if self.convergence_history:
+            state.extend([
+                np.mean(self.convergence_history),
+                np.std(self.convergence_history),
+                self.convergence_history[-1] if self.convergence_history else 0.0
+            ])
+        else:
+            state.extend([0.0, 0.0, 0.0])
+        
+        # 性能指标
+        for key in ['mesh_efficiency', 'iterations']:
+            if key in self.performance_metrics:
+                # 归一化到[0,1]
+                if key == 'iterations':
+                    val = self.performance_metrics[key] / 500.0  # 假设最大500次迭代
+                else:
+                    val = self.performance_metrics[key]
+                state.append(val)
+            else:
+                state.append(0.0)
+        
+        return np.array(state, dtype=np.float32)
+
+
+class RLSolverOptimizer(BaseSolver):
+    """
+    强化学习求解器优化器 - 使用RL自动优化数值求解策略
+    
+    核心思想：通过强化学习训练智能体，自动选择最优的求解参数，
+    实现"自学习"的数值求解优化
+    """
+    
+    def __init__(self, state_dim: int, action_dim: int, solver_config: Dict = None):
+        super().__init__()
+        
+        if not HAS_PYTORCH:
+            raise ImportError("需要安装PyTorch来使用RL求解器优化器")
+        
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.solver_config = solver_config or {}
+        
+        # 创建RL智能体和环境
+        self.agent = RLAgent(state_dim, action_dim)
+        self.environment = SolverEnvironment(solver_config)
+        
+        # 训练参数
+        self.learning_rate = 0.001
+        self.gamma = 0.99  # 折扣因子
+        self.tau = 0.005   # 软更新参数
+        
+        # 经验回放缓冲区
+        self.replay_buffer = []
+        self.buffer_size = 10000
+        self.batch_size = 64
+        
+        # 目标网络（用于稳定训练）
+        self.target_agent = RLAgent(state_dim, action_dim)
+        self._update_target_network()
+        
+        self.optimizer_actor = optim.Adam(self.agent.actor.parameters(), lr=self.learning_rate)
+        self.optimizer_critic = optim.Adam(self.agent.critic.parameters(), lr=self.learning_rate)
+        
+        print(f"🔄 RL求解器优化器初始化完成")
+        print(f"   状态维度: {state_dim}, 动作维度: {action_dim}")
+    
+    def _update_target_network(self):
+        """软更新目标网络"""
+        for target_param, param in zip(self.target_agent.parameters(), self.agent.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+    
+    def _store_experience(self, state: np.ndarray, action: np.ndarray, 
+                         reward: float, next_state: np.ndarray, done: bool):
+        """存储经验到回放缓冲区"""
+        experience = (state, action, reward, next_state, done)
+        self.replay_buffer.append(experience)
+        
+        # 限制缓冲区大小
+        if len(self.replay_buffer) > self.buffer_size:
+            self.replay_buffer.pop(0)
+    
+    def _sample_batch(self) -> List[Tuple]:
+        """从回放缓冲区采样批次"""
+        if len(self.replay_buffer) < self.batch_size:
+            return []
+        
+        indices = np.random.choice(len(self.replay_buffer), self.batch_size, replace=False)
+        return [self.replay_buffer[i] for i in indices]
+    
+    def _update_networks(self, batch: List[Tuple]):
+        """更新网络参数"""
+        if not batch:
+            return
+        
+        states = torch.FloatTensor(np.array([exp[0] for exp in batch])).to(self.device)
+        actions = torch.FloatTensor(np.array([exp[1] for exp in batch])).to(self.device)
+        rewards = torch.FloatTensor(np.array([exp[2] for exp in batch])).to(self.device)
+        next_states = torch.FloatTensor(np.array([exp[3] for exp in batch])).to(self.device)
+        dones = torch.BoolTensor(np.array([exp[4] for exp in batch])).to(self.device)
+        
+        # 更新Critic网络
+        current_q_values = self.agent.get_value(states, actions)
+        next_actions = self.target_agent(next_states)
+        next_q_values = self.target_agent.get_value(next_states, next_actions)
+        target_q_values = rewards + (self.gamma * next_q_values * (~dones).float())
+        
+        critic_loss = F.mse_loss(current_q_values, target_q_values.detach())
+        
+        self.optimizer_critic.zero_grad()
+        critic_loss.backward()
+        self.optimizer_critic.step()
+        
+        # 更新Actor网络
+        actor_loss = -self.agent.get_value(states, self.agent(states)).mean()
+        
+        self.optimizer_actor.zero_grad()
+        actor_loss.backward()
+        self.optimizer_actor.step()
+        
+        # 软更新目标网络
+        self._update_target_network()
+        
+        return {
+            'critic_loss': critic_loss.item(),
+            'actor_loss': actor_loss.item()
+        }
+    
+    def train(self, episodes: int = 1000, **kwargs) -> dict:
+        """训练RL智能体"""
+        print(f"🔄 开始训练RL求解器优化器，总轮数: {episodes}")
+        
+        episode_rewards = []
+        episode_lengths = []
+        training_losses = []
+        
+        for episode in range(episodes):
+            state = self.environment.reset()
+            episode_reward = 0.0
+            episode_length = 0
+            
+            while True:
+                # 选择动作
+                action = self.agent.get_action(state, noise_scale=max(0.01, 0.1 * (1 - episode / episodes)))
+                
+                # 执行动作
+                next_state, reward, done, info = self.environment.step(action)
+                
+                # 存储经验
+                self._store_experience(state, action, reward, next_state, done)
+                
+                # 更新网络
+                batch = self._sample_batch()
+                if batch:
+                    loss_info = self._update_networks(batch)
+                    training_losses.append(loss_info)
+                
+                state = next_state
+                episode_reward += reward
+                episode_length += 1
+                
+                if done:
+                    break
+            
+            episode_rewards.append(episode_reward)
+            episode_lengths.append(episode_length)
+            
+            if (episode + 1) % 100 == 0:
+                avg_reward = np.mean(episode_rewards[-100:])
+                avg_length = np.mean(episode_lengths[-100:])
+                print(f"   轮数 {episode+1}/{episodes}: 平均奖励={avg_reward:.4f}, 平均长度={avg_length:.1f}")
+        
+        self.is_trained = True
+        
+        training_history = {
+            'episodes': episodes,
+            'episode_rewards': episode_rewards,
+            'episode_lengths': episode_lengths,
+            'training_losses': training_losses,
+            'final_avg_reward': np.mean(episode_rewards[-100:]) if episode_rewards else 0.0
+        }
+        
+        print(f"✅ RL训练完成，最终平均奖励: {training_history['final_avg_reward']:.4f}")
+        return training_history
+    
+    def optimize_solver_strategy(self, problem_state: np.ndarray) -> Dict:
+        """优化求解策略"""
+        if not self.is_trained:
+            raise ValueError("RL智能体尚未训练")
+        
+        # 使用训练好的智能体选择最优动作
+        optimal_action = self.agent.get_action(problem_state, noise_scale=0.0)
+        
+        # 转换为求解器参数
+        solver_params = self.environment._action_to_params(optimal_action)
+        
+        print(f"🔧 RL优化求解策略:")
+        for param, value in solver_params.items():
+            print(f"   {param}: {value:.6f}")
+        
+        return solver_params
+    
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """预测最优求解策略"""
+        if not self.is_trained:
+            raise ValueError("RL智能体尚未训练")
+        
+        strategies = []
+        for state in X:
+            action = self.agent.get_action(state, noise_scale=0.0)
+            strategy = self.environment._action_to_params(action)
+            strategies.append(list(strategy.values()))
+        
+        return np.array(strategies)
+    
+    def evaluate_strategy(self, strategy: Dict, problem_state: np.ndarray) -> Dict:
+        """评估求解策略的性能"""
+        # 将策略转换为动作
+        action = np.array([strategy.get(param, 0.0) for param in self.environment.action_bounds.keys()])
+        
+        # 在环境中测试策略
+        state = problem_state
+        total_reward = 0.0
+        step_count = 0
+        
+        for _ in range(self.environment.max_steps):
+            next_state, reward, done, info = self.environment.step(action)
+            total_reward += reward
+            step_count += 1
+            
+            if done:
+                break
+        
+        return {
+            'total_reward': total_reward,
+            'step_count': step_count,
+            'efficiency': total_reward / max(step_count, 1),
+            'convergence': info.get('converged', False)
+        }
+
+
 def create_advanced_ml_system() -> Dict:
     """创建高级ML系统"""
     system = {
@@ -876,11 +1303,513 @@ def create_advanced_ml_system() -> Dict:
         'surrogate': SurrogateModelAdvanced,
         'bridge': MultiScaleMLBridge,
         'hybrid': HybridMLAccelerator,
-        'adaptive': AdaptiveMLSolver
+        'adaptive': AdaptiveMLSolver,
+        'rl_agent': RLAgent,
+        'rl_environment': SolverEnvironment,
+        'rl_optimizer': RLSolverOptimizer
     }
     
     print("🔄 高级ML系统创建完成")
     return system
+
+
+class RLAgent(nn.Module):
+    """
+    强化学习智能体 - 用于优化数值求解策略
+    
+    核心思想：通过强化学习自动选择最优的求解参数（时间步长、网格加密方案等），
+    减少人工调参成本，提升求解效率
+    """
+    
+    def __init__(self, state_dim: int, action_dim: int, hidden_dims: List[int] = [128, 64]):
+        super().__init__()
+        
+        if not HAS_PYTORCH:
+            raise ImportError("需要安装PyTorch来使用RL智能体")
+        
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Actor网络（策略网络）
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dims[0]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], action_dim),
+            nn.Tanh()  # 输出范围[-1, 1]
+        )
+        
+        # Critic网络（价值网络）
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dims[0]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], 1)
+        )
+        
+        self.to(self.device)
+        
+        print(f"🔄 RL智能体初始化完成 - 设备: {self.device}")
+        print(f"   状态维度: {state_dim}, 动作维度: {action_dim}")
+    
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        """前向传播 - 返回动作"""
+        return self.actor(state)
+    
+    def get_action(self, state: np.ndarray, noise_scale: float = 0.1) -> np.ndarray:
+        """获取动作（带探索噪声）"""
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        
+        with torch.no_grad():
+            action = self.forward(state_tensor).squeeze(0)
+            # 添加探索噪声
+            noise = torch.randn_like(action) * noise_scale
+            action = action + noise
+            # 裁剪到有效范围
+            action = torch.clamp(action, -1.0, 1.0)
+        
+        return action.cpu().numpy()
+    
+    def get_value(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """获取状态-动作价值"""
+        return self.critic(torch.cat([state, action], dim=1))
+
+
+class SolverEnvironment:
+    """
+    求解器环境 - 模拟数值求解过程，为RL提供训练环境
+    
+    核心思想：将数值求解过程建模为强化学习环境，
+    智能体通过与环境交互学习最优的求解策略
+    """
+    
+    def __init__(self, solver_config: Dict, physics_config: PhysicsConfig = None):
+        self.solver_config = solver_config
+        self.physics_config = physics_config or PhysicsConfig()
+        self.max_steps = solver_config.get('max_steps', 100)
+        self.current_step = 0
+        self.convergence_history = []
+        self.performance_metrics = {}
+        
+        # 求解策略参数范围
+        self.action_bounds = {
+            'time_step': (0.001, 0.1),      # 时间步长
+            'mesh_refinement': (0.1, 2.0),  # 网格加密因子
+            'tolerance': (1e-6, 1e-3),      # 收敛容差
+            'max_iterations': (50, 500)      # 最大迭代次数
+        }
+        
+        print(f"🔄 求解器环境初始化完成")
+        print(f"   最大步数: {self.max_steps}")
+        print(f"   动作参数: {list(self.action_bounds.keys())}")
+    
+    def reset(self) -> np.ndarray:
+        """重置环境"""
+        self.current_step = 0
+        self.convergence_history = []
+        self.performance_metrics = {}
+        
+        # 返回初始状态
+        initial_state = self._get_state()
+        return initial_state
+    
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict]:
+        """执行一步动作"""
+        if self.current_step >= self.max_steps:
+            return self._get_state(), 0.0, True, {}
+        
+        # 解析动作（从[-1,1]映射到实际参数范围）
+        solver_params = self._action_to_params(action)
+        
+        # 模拟求解过程
+        reward, metrics = self._simulate_solving(solver_params)
+        
+        # 更新状态
+        self.current_step += 1
+        self.convergence_history.append(metrics.get('convergence', 0.0))
+        self.performance_metrics.update(metrics)
+        
+        # 检查是否完成
+        done = self.current_step >= self.max_steps or metrics.get('converged', False)
+        
+        return self._get_state(), reward, done, metrics
+    
+    def _action_to_params(self, action: np.ndarray) -> Dict:
+        """将动作转换为求解器参数"""
+        params = {}
+        action_names = list(self.action_bounds.keys())
+        
+        for i, name in enumerate(action_names):
+            if i < len(action):
+                # 将[-1,1]映射到实际范围
+                action_val = action[i]
+                min_val, max_val = self.action_bounds[name]
+                param_val = min_val + (action_val + 1) * (max_val - min_val) / 2
+                params[name] = param_val
+        
+        return params
+    
+    def _simulate_solving(self, solver_params: Dict) -> Tuple[float, Dict]:
+        """模拟求解过程，计算奖励和指标"""
+        # 模拟求解时间（基于参数）
+        time_step = solver_params.get('time_step', 0.01)
+        mesh_refinement = solver_params.get('mesh_refinement', 1.0)
+        tolerance = solver_params.get('tolerance', 1e-4)
+        max_iterations = solver_params.get('max_iterations', 100)
+        
+        # 模拟收敛过程
+        convergence_rate = 1.0 / (1.0 + tolerance * 1000)  # 容差越小，收敛越快
+        mesh_efficiency = 1.0 / (1.0 + abs(mesh_refinement - 1.0))  # 网格因子接近1时效率最高
+        
+        # 模拟迭代次数
+        actual_iterations = min(max_iterations, int(50 / convergence_rate))
+        
+        # 计算奖励（综合考虑效率、精度、稳定性）
+        efficiency_reward = 1.0 / (1.0 + time_step * 100)  # 时间步长越小越好
+        accuracy_reward = 1.0 / (1.0 + tolerance * 1e6)    # 容差越小越好
+        stability_reward = 1.0 / (1.0 + abs(mesh_refinement - 1.0))  # 网格稳定性
+        
+        # 收敛奖励
+        converged = actual_iterations < max_iterations
+        convergence_reward = 10.0 if converged else 0.0
+        
+        # 总奖励
+        total_reward = (efficiency_reward + accuracy_reward + stability_reward + convergence_reward) / 4
+        
+        # 性能指标
+        metrics = {
+            'convergence': convergence_rate,
+            'mesh_efficiency': mesh_efficiency,
+            'iterations': actual_iterations,
+            'converged': converged,
+            'time_step': time_step,
+            'mesh_refinement': mesh_refinement,
+            'tolerance': tolerance
+        }
+        
+        return total_reward, metrics
+    
+    def _get_state(self) -> np.ndarray:
+        """获取当前状态"""
+        state = []
+        
+        # 当前步数（归一化）
+        state.append(self.current_step / self.max_steps)
+        
+        # 收敛历史统计
+        if self.convergence_history:
+            state.extend([
+                np.mean(self.convergence_history),
+                np.std(self.convergence_history),
+                self.convergence_history[-1] if self.convergence_history else 0.0
+            ])
+        else:
+            state.extend([0.0, 0.0, 0.0])
+        
+        # 性能指标
+        for key in ['mesh_efficiency', 'iterations']:
+            if key in self.performance_metrics:
+                # 归一化到[0,1]
+                if key == 'iterations':
+                    val = self.performance_metrics[key] / 500.0  # 假设最大500次迭代
+                else:
+                    val = self.performance_metrics[key]
+                state.append(val)
+            else:
+                state.append(0.0)
+        
+        return np.array(state, dtype=np.float32)
+
+
+class RLSolverOptimizer(BaseSolver):
+    """
+    强化学习求解器优化器 - 使用RL自动优化数值求解策略
+    
+    核心思想：通过强化学习训练智能体，自动选择最优的求解参数，
+    实现"自学习"的数值求解优化
+    """
+    
+    def __init__(self, state_dim: int, action_dim: int, solver_config: Dict = None):
+        super().__init__()
+        
+        if not HAS_PYTORCH:
+            raise ImportError("需要安装PyTorch来使用RL求解器优化器")
+        
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.solver_config = solver_config or {}
+        
+        # 创建RL智能体和环境
+        self.agent = RLAgent(state_dim, action_dim)
+        self.environment = SolverEnvironment(solver_config)
+        
+        # 训练参数
+        self.learning_rate = 0.001
+        self.gamma = 0.99  # 折扣因子
+        self.tau = 0.005   # 软更新参数
+        
+        # 经验回放缓冲区
+        self.replay_buffer = []
+        self.buffer_size = 10000
+        self.batch_size = 64
+        
+        # 目标网络（用于稳定训练）
+        self.target_agent = RLAgent(state_dim, action_dim)
+        self._update_target_network()
+        
+        self.optimizer_actor = optim.Adam(self.agent.actor.parameters(), lr=self.learning_rate)
+        self.optimizer_critic = optim.Adam(self.agent.critic.parameters(), lr=self.learning_rate)
+        
+        print(f"🔄 RL求解器优化器初始化完成")
+        print(f"   状态维度: {state_dim}, 动作维度: {action_dim}")
+    
+    def _update_target_network(self):
+        """软更新目标网络"""
+        for target_param, param in zip(self.target_agent.parameters(), self.agent.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+    
+    def _store_experience(self, state: np.ndarray, action: np.ndarray, 
+                         reward: float, next_state: np.ndarray, done: bool):
+        """存储经验到回放缓冲区"""
+        experience = (state, action, reward, next_state, done)
+        self.replay_buffer.append(experience)
+        
+        # 限制缓冲区大小
+        if len(self.replay_buffer) > self.buffer_size:
+            self.replay_buffer.pop(0)
+    
+    def _sample_batch(self) -> List[Tuple]:
+        """从回放缓冲区采样批次"""
+        if len(self.replay_buffer) < self.batch_size:
+            return []
+        
+        indices = np.random.choice(len(self.replay_buffer), self.batch_size, replace=False)
+        return [self.replay_buffer[i] for i in indices]
+    
+    def _update_networks(self, batch: List[Tuple]):
+        """更新网络参数"""
+        if not batch:
+            return
+        
+        states = torch.FloatTensor(np.array([exp[0] for exp in batch])).to(self.device)
+        actions = torch.FloatTensor(np.array([exp[1] for exp in batch])).to(self.device)
+        rewards = torch.FloatTensor(np.array([exp[2] for exp in batch])).to(self.device)
+        next_states = torch.FloatTensor(np.array([exp[3] for exp in batch])).to(self.device)
+        dones = torch.BoolTensor(np.array([exp[4] for exp in batch])).to(self.device)
+        
+        # 更新Critic网络
+        current_q_values = self.agent.get_value(states, actions)
+        next_actions = self.target_agent(next_states)
+        next_q_values = self.target_agent.get_value(next_states, next_actions)
+        target_q_values = rewards + (self.gamma * next_q_values * (~dones).float())
+        
+        critic_loss = F.mse_loss(current_q_values, target_q_values.detach())
+        
+        self.optimizer_critic.zero_grad()
+        critic_loss.backward()
+        self.optimizer_critic.step()
+        
+        # 更新Actor网络
+        actor_loss = -self.agent.get_value(states, self.agent(states)).mean()
+        
+        self.optimizer_actor.zero_grad()
+        actor_loss.backward()
+        self.optimizer_actor.step()
+        
+        # 软更新目标网络
+        self._update_target_network()
+        
+        return {
+            'critic_loss': critic_loss.item(),
+            'actor_loss': actor_loss.item()
+        }
+    
+    def train(self, episodes: int = 1000, **kwargs) -> dict:
+        """训练RL智能体"""
+        print(f"🔄 开始训练RL求解器优化器，总轮数: {episodes}")
+        
+        episode_rewards = []
+        episode_lengths = []
+        training_losses = []
+        
+        for episode in range(episodes):
+            state = self.environment.reset()
+            episode_reward = 0.0
+            episode_length = 0
+            
+            while True:
+                # 选择动作
+                action = self.agent.get_action(state, noise_scale=max(0.01, 0.1 * (1 - episode / episodes)))
+                
+                # 执行动作
+                next_state, reward, done, info = self.environment.step(action)
+                
+                # 存储经验
+                self._store_experience(state, action, reward, next_state, done)
+                
+                # 更新网络
+                batch = self._sample_batch()
+                if batch:
+                    loss_info = self._update_networks(batch)
+                    training_losses.append(loss_info)
+                
+                state = next_state
+                episode_reward += reward
+                episode_length += 1
+                
+                if done:
+                    break
+            
+            episode_rewards.append(episode_reward)
+            episode_lengths.append(episode_length)
+            
+            if (episode + 1) % 100 == 0:
+                avg_reward = np.mean(episode_rewards[-100:])
+                avg_length = np.mean(episode_lengths[-100:])
+                print(f"   轮数 {episode+1}/{episodes}: 平均奖励={avg_reward:.4f}, 平均长度={avg_length:.1f}")
+        
+        self.is_trained = True
+        
+        training_history = {
+            'episodes': episodes,
+            'episode_rewards': episode_rewards,
+            'episode_lengths': episode_lengths,
+            'training_losses': training_losses,
+            'final_avg_reward': np.mean(episode_rewards[-100:]) if episode_rewards else 0.0
+        }
+        
+        print(f"✅ RL训练完成，最终平均奖励: {training_history['final_avg_reward']:.4f}")
+        return training_history
+    
+    def optimize_solver_strategy(self, problem_state: np.ndarray) -> Dict:
+        """优化求解策略"""
+        if not self.is_trained:
+            raise ValueError("RL智能体尚未训练")
+        
+        # 使用训练好的智能体选择最优动作
+        optimal_action = self.agent.get_action(problem_state, noise_scale=0.0)
+        
+        # 转换为求解器参数
+        solver_params = self.environment._action_to_params(optimal_action)
+        
+        print(f"🔧 RL优化求解策略:")
+        for param, value in solver_params.items():
+            print(f"   {param}: {value:.6f}")
+        
+        return solver_params
+    
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """预测最优求解策略"""
+        if not self.is_trained:
+            raise ValueError("RL智能体尚未训练")
+        
+        strategies = []
+        for state in X:
+            action = self.agent.get_action(state, noise_scale=0.0)
+            strategy = self.environment._action_to_params(action)
+            strategies.append(list(strategy.values()))
+        
+        return np.array(strategies)
+    
+    def evaluate_strategy(self, strategy: Dict, problem_state: np.ndarray) -> Dict:
+        """评估求解策略的性能"""
+        # 将策略转换为动作
+        action = np.array([strategy.get(param, 0.0) for param in self.environment.action_bounds.keys()])
+        
+        # 在环境中测试策略
+        state = problem_state
+        total_reward = 0.0
+        step_count = 0
+        
+        for _ in range(self.environment.max_steps):
+            next_state, reward, done, info = self.environment.step(action)
+            total_reward += reward
+            step_count += 1
+            
+            if done:
+                break
+        
+        return {
+            'total_reward': total_reward,
+            'step_count': step_count,
+            'efficiency': total_reward / max(step_count, 1),
+            'convergence': info.get('converged', False)
+        }
+
+
+def create_rl_solver_system() -> Dict:
+    """创建RL求解器系统"""
+    system = {
+        'agent': RLAgent,
+        'environment': SolverEnvironment,
+        'optimizer': RLSolverOptimizer
+    }
+    
+    print("🔄 RL求解器系统创建完成")
+    return system
+
+
+def demo_rl_solver_optimization():
+    """演示RL求解器优化"""
+    print("🤖 强化学习求解器优化演示")
+    print("=" * 60)
+    
+    try:
+        # 创建RL求解器系统
+        rl_system = create_rl_solver_system()
+        
+        # 配置求解器环境
+        solver_config = {
+            'max_steps': 50,
+            'convergence_threshold': 1e-6
+        }
+        
+        # 创建环境
+        env = rl_system['environment'](solver_config)
+        state_dim = len(env.reset())
+        action_dim = len(env.action_bounds)
+        
+        print(f"📊 环境配置:")
+        print(f"   状态维度: {state_dim}")
+        print(f"   动作维度: {action_dim}")
+        print(f"   最大步数: {env.max_steps}")
+        
+        # 创建RL优化器
+        rl_optimizer = rl_system['optimizer'](state_dim, action_dim, solver_config)
+        
+        # 训练RL智能体
+        print("\n🔧 训练RL智能体...")
+        training_history = rl_optimizer.train(episodes=500)
+        
+        print(f"   训练完成，最终平均奖励: {training_history['final_avg_reward']:.4f}")
+        
+        # 测试优化后的策略
+        print("\n🔧 测试优化后的求解策略...")
+        
+        # 模拟问题状态
+        test_state = np.array([0.0, 0.5, 0.1, 0.8, 0.3])
+        
+        # 获取最优策略
+        optimal_strategy = rl_optimizer.optimize_solver_strategy(test_state)
+        
+        # 评估策略性能
+        performance = rl_optimizer.evaluate_strategy(optimal_strategy, test_state)
+        
+        print(f"   策略性能评估:")
+        print(f"     总奖励: {performance['total_reward']:.4f}")
+        print(f"     步数: {performance['step_count']}")
+        print(f"     效率: {performance['efficiency']:.4f}")
+        print(f"     收敛: {performance['convergence']}")
+        
+        print("\n✅ RL求解器优化演示完成!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ RL求解器优化演示失败: {e}")
+        return False
 
 
 def demo_advanced_ml():
@@ -1025,5 +1954,78 @@ def demo_advanced_ml():
     print("\n✅ 高级机器学习加速数值模拟演示完成!")
 
 
+def create_rl_solver_system() -> Dict:
+    """创建RL求解器系统"""
+    system = {
+        'agent': RLAgent,
+        'environment': SolverEnvironment,
+        'optimizer': RLSolverOptimizer
+    }
+    
+    print("🔄 RL求解器系统创建完成")
+    return system
+
+
+def demo_rl_solver_optimization():
+    """演示RL求解器优化"""
+    print("🤖 强化学习求解器优化演示")
+    print("=" * 60)
+    
+    try:
+        # 创建RL求解器系统
+        rl_system = create_rl_solver_system()
+        
+        # 配置求解器环境
+        solver_config = {
+            'max_steps': 50,
+            'convergence_threshold': 1e-6
+        }
+        
+        # 创建环境
+        env = rl_system['environment'](solver_config)
+        state_dim = len(env.reset())
+        action_dim = len(env.action_bounds)
+        
+        print(f"📊 环境配置:")
+        print(f"   状态维度: {state_dim}")
+        print(f"   动作维度: {action_dim}")
+        print(f"   最大步数: {env.max_steps}")
+        
+        # 创建RL优化器
+        rl_optimizer = rl_system['optimizer'](state_dim, action_dim, solver_config)
+        
+        # 训练RL智能体
+        print("\n🔧 训练RL智能体...")
+        training_history = rl_optimizer.train(episodes=500)
+        
+        print(f"   训练完成，最终平均奖励: {training_history['final_avg_reward']:.4f}")
+        
+        # 测试优化后的策略
+        print("\n🔧 测试优化后的求解策略...")
+        
+        # 模拟问题状态
+        test_state = np.array([0.0, 0.5, 0.1, 0.8, 0.3])
+        
+        # 获取最优策略
+        optimal_strategy = rl_optimizer.optimize_solver_strategy(test_state)
+        
+        # 评估策略性能
+        performance = rl_optimizer.evaluate_strategy(optimal_strategy, test_state)
+        
+        print(f"   策略性能评估:")
+        print(f"     总奖励: {performance['total_reward']:.4f}")
+        print(f"     步数: {performance['step_count']}")
+        print(f"     效率: {performance['efficiency']:.4f}")
+        print(f"     收敛: {performance['convergence']}")
+        
+        print("\n✅ RL求解器优化演示完成!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ RL求解器优化演示失败: {e}")
+        return False
+
+
 if __name__ == "__main__":
     demo_advanced_ml()
+    demo_rl_solver_optimization()

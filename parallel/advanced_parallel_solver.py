@@ -69,7 +69,7 @@ class PerformanceStats:
 
 
 class CommunicationOptimizer:
-    """通信优化器"""
+    """通信优化器 - 升级版：支持动态通信调度"""
     
     def __init__(self, comm=None):
         self.comm = comm
@@ -78,24 +78,199 @@ class CommunicationOptimizer:
         self.communication_patterns = {}
         self.buffer_pool = {}
         
+        # 新增：实时负载监控
+        self.load_monitor = LoadMonitor()
+        self.communication_history = {}
+        self.dynamic_schedule_cache = {}
+        self.schedule_update_frequency = 10  # 每10次通信更新一次调度
+        self.communication_count = 0
+        
     def optimize_communication_schedule(self, partition_info: Dict) -> Dict:
-        """优化通信调度"""
+        """优化通信调度 - 支持动态调度"""
         if not self.comm:
             return partition_info
         
         # 分析通信模式
         pattern = self._analyze_communication_pattern(partition_info)
         
-        # 生成优化的通信调度
-        schedule = self._generate_optimized_schedule(pattern)
+        # 获取实时负载信息
+        real_time_loads = self._get_real_time_loads()
+        
+        # 生成动态优化的通信调度
+        schedule = self._generate_dynamic_schedule(pattern, real_time_loads)
         
         # 预分配缓冲区
         self._preallocate_buffers(schedule)
         
+        # 更新通信历史
+        self._update_communication_history(schedule)
+        
         return {
             'communication_schedule': schedule,
             'communication_pattern': pattern,
-            'buffer_info': self.buffer_pool
+            'buffer_info': self.buffer_pool,
+            'real_time_loads': real_time_loads,
+            'dynamic_optimization': True
+        }
+    
+    def _get_real_time_loads(self) -> Dict[int, float]:
+        """获取实时负载信息"""
+        if not self.comm:
+            return {self.rank: 1.0}
+        
+        # 获取本地负载
+        local_load = self.load_monitor.get_current_load()
+        
+        # 收集所有进程的负载信息
+        all_loads = self.comm.allgather(local_load)
+        
+        # 转换为字典格式
+        loads = {rank: load for rank, load in enumerate(all_loads)}
+        
+        return loads
+    
+    def _generate_dynamic_schedule(self, pattern: Dict, real_time_loads: Dict[int, float]) -> Dict:
+        """生成动态优化的通信调度"""
+        # 检查是否需要更新调度
+        if self._should_update_schedule(real_time_loads):
+            schedule = self._compute_optimal_schedule(pattern, real_time_loads)
+            self.dynamic_schedule_cache = schedule
+        else:
+            schedule = self.dynamic_schedule_cache
+        
+        return schedule
+    
+    def _should_update_schedule(self, real_time_loads: Dict[int, float]) -> bool:
+        """判断是否需要更新调度"""
+        # 基于通信频率和负载变化判断
+        if self.communication_count % self.schedule_update_frequency == 0:
+            return True
+        
+        # 检查负载变化是否超过阈值
+        if hasattr(self, '_previous_loads'):
+            load_change = self._compute_load_change(self._previous_loads, real_time_loads)
+            if load_change > 0.2:  # 负载变化超过20%
+                return True
+        
+        self._previous_loads = real_time_loads.copy()
+        return False
+    
+    def _compute_load_change(self, old_loads: Dict[int, float], new_loads: Dict[int, float]) -> float:
+        """计算负载变化"""
+        if not old_loads or not new_loads:
+            return 0.0
+        
+        total_change = 0.0
+        for rank in old_loads:
+            if rank in new_loads:
+                change = abs(new_loads[rank] - old_loads[rank]) / max(old_loads[rank], 1e-6)
+                total_change += change
+        
+        return total_change / len(old_loads)
+    
+    def _compute_optimal_schedule(self, pattern: Dict, real_time_loads: Dict[int, float]) -> Dict:
+        """计算最优通信调度"""
+        schedule = {
+            'send_sequence': [],
+            'receive_sequence': [],
+            'nonblocking_ops': [],
+            'collective_ops': [],
+            'priority_queue': [],
+            'load_balanced_sequence': []
+        }
+        
+        if not pattern['neighbors']:
+            return schedule
+        
+        # 计算每个邻居的通信优先级
+        neighbor_priorities = self._compute_neighbor_priorities(pattern, real_time_loads)
+        
+        # 生成负载均衡的通信序列
+        schedule['load_balanced_sequence'] = self._generate_load_balanced_sequence(
+            pattern, real_time_loads, neighbor_priorities
+        )
+        
+        # 生成优先级队列
+        schedule['priority_queue'] = self._generate_priority_queue(neighbor_priorities)
+        
+        # 生成发送和接收序列
+        schedule['send_sequence'] = [neighbor for neighbor, _ in schedule['priority_queue']]
+        schedule['receive_sequence'] = schedule['send_sequence'][::-1]  # 反向接收
+        
+        # 非阻塞操作
+        schedule['nonblocking_ops'] = schedule['send_sequence']
+        
+        return schedule
+    
+    def _compute_neighbor_priorities(self, pattern: Dict, real_time_loads: Dict[int, float]) -> Dict[int, float]:
+        """计算邻居通信优先级"""
+        priorities = {}
+        
+        for neighbor in pattern['neighbors']:
+            # 基础优先级：通信量
+            communication_volume = pattern['communication_volume'].get(neighbor, 0)
+            
+            # 负载因子：优先与负载较低的进程通信
+            neighbor_load = real_time_loads.get(neighbor, 1.0)
+            load_factor = 1.0 / max(neighbor_load, 0.1)
+            
+            # 距离因子：优先与近邻通信（简化实现）
+            distance_factor = 1.0 / (abs(neighbor - self.rank) + 1)
+            
+            # 综合优先级
+            priority = communication_volume * load_factor * distance_factor
+            priorities[neighbor] = priority
+        
+        return priorities
+    
+    def _generate_load_balanced_sequence(self, pattern: Dict, real_time_loads: Dict[int, float], 
+                                       priorities: Dict[int, float]) -> List[Tuple[int, float]]:
+        """生成负载均衡的通信序列"""
+        # 按优先级排序
+        sorted_neighbors = sorted(priorities.items(), key=lambda x: x[1], reverse=True)
+        
+        # 考虑负载平衡的序列生成
+        balanced_sequence = []
+        current_load = real_time_loads.get(self.rank, 1.0)
+        
+        for neighbor, priority in sorted_neighbors:
+            neighbor_load = real_time_loads.get(neighbor, 1.0)
+            
+            # 如果邻居负载较低，优先通信
+            if neighbor_load < current_load:
+                balanced_sequence.insert(0, (neighbor, priority))
+            else:
+                balanced_sequence.append((neighbor, priority))
+        
+        return balanced_sequence
+    
+    def _generate_priority_queue(self, priorities: Dict[int, float]) -> List[Tuple[int, float]]:
+        """生成优先级队列"""
+        return sorted(priorities.items(), key=lambda x: x[1], reverse=True)
+    
+    def _update_communication_history(self, schedule: Dict):
+        """更新通信历史"""
+        self.communication_count += 1
+        
+        # 记录调度信息
+        self.communication_history[self.communication_count] = {
+            'timestamp': time.time(),
+            'schedule': schedule,
+            'load_info': getattr(self, '_previous_loads', {})
+        }
+        
+        # 保持历史记录在合理范围内
+        if len(self.communication_history) > 100:
+            oldest_key = min(self.communication_history.keys())
+            del self.communication_history[oldest_key]
+    
+    def get_communication_statistics(self) -> Dict:
+        """获取通信统计信息"""
+        return {
+            'total_communications': self.communication_count,
+            'schedule_updates': len(self.dynamic_schedule_cache),
+            'load_monitoring': self.load_monitor.get_statistics(),
+            'recent_history': dict(list(self.communication_history.items())[-10:])
         }
     
     def _analyze_communication_pattern(self, partition_info: Dict) -> Dict:
@@ -124,28 +299,6 @@ class CommunicationOptimizer:
         
         return pattern
     
-    def _generate_optimized_schedule(self, pattern: Dict) -> Dict:
-        """生成优化的通信调度"""
-        schedule = {
-            'send_sequence': [],
-            'receive_sequence': [],
-            'nonblocking_ops': [],
-            'collective_ops': []
-        }
-        
-        # 按通信量排序邻居
-        sorted_neighbors = sorted(pattern['neighbors'].keys(), 
-                                key=lambda x: pattern['communication_volume'].get(x, 0),
-                                reverse=True)
-        
-        # 生成通信序列
-        for neighbor in sorted_neighbors:
-            schedule['send_sequence'].append(neighbor)
-            schedule['receive_sequence'].append(neighbor)
-            schedule['nonblocking_ops'].append(neighbor)
-        
-        return schedule
-    
     def _preallocate_buffers(self, schedule: Dict):
         """预分配缓冲区"""
         for neighbor in schedule['nonblocking_ops']:
@@ -155,6 +308,96 @@ class CommunicationOptimizer:
                 'recv_buffer': np.zeros(buffer_size, dtype=np.float64),
                 'request': None
             }
+
+
+class LoadMonitor:
+    """负载监控器 - 新增：用于实时负载监控"""
+    
+    def __init__(self):
+        self.load_history = []
+        self.max_history_size = 50
+        self.current_load = 1.0
+        self.load_update_interval = 0.1  # 100ms更新一次
+        self.last_update_time = time.time()
+        
+        # 系统资源监控
+        self.cpu_usage = 0.0
+        self.memory_usage = 0.0
+        self.gpu_usage = 0.0
+        
+    def get_current_load(self) -> float:
+        """获取当前负载"""
+        current_time = time.time()
+        
+        # 定期更新负载
+        if current_time - self.last_update_time > self.load_update_interval:
+            self._update_system_load()
+            self.last_update_time = current_time
+        
+        return self.current_load
+    
+    def _update_system_load(self):
+        """更新系统负载"""
+        try:
+            import psutil
+            
+            # CPU使用率
+            self.cpu_usage = psutil.cpu_percent(interval=0.1)
+            
+            # 内存使用率
+            memory = psutil.virtual_memory()
+            self.memory_usage = memory.percent
+            
+            # GPU使用率（如果可用）
+            try:
+                import GPUtil
+                gpus = GPUtil.getGPUs()
+                if gpus:
+                    self.gpu_usage = gpus[0].load * 100
+                else:
+                    self.gpu_usage = 0.0
+            except:
+                self.gpu_usage = 0.0
+            
+            # 综合负载计算
+            self.current_load = (self.cpu_usage * 0.4 + 
+                               self.memory_usage * 0.4 + 
+                               self.gpu_usage * 0.2) / 100.0
+            
+        except ImportError:
+            # 如果没有psutil，使用简单的负载估计
+            self.current_load = 0.5 + 0.3 * np.sin(time.time() * 0.1)
+        
+        # 记录负载历史
+        self.load_history.append({
+            'timestamp': time.time(),
+            'load': self.current_load,
+            'cpu': self.cpu_usage,
+            'memory': self.memory_usage,
+            'gpu': self.gpu_usage
+        })
+        
+        # 保持历史记录在合理范围内
+        if len(self.load_history) > self.max_history_size:
+            self.load_history.pop(0)
+    
+    def get_statistics(self) -> Dict:
+        """获取负载统计信息"""
+        if not self.load_history:
+            return {}
+        
+        loads = [entry['load'] for entry in self.load_history]
+        return {
+            'current_load': self.current_load,
+            'average_load': np.mean(loads),
+            'max_load': np.max(loads),
+            'min_load': np.min(loads),
+            'load_variance': np.var(loads),
+            'cpu_usage': self.cpu_usage,
+            'memory_usage': self.memory_usage,
+            'gpu_usage': self.gpu_usage,
+            'history_size': len(self.load_history)
+        }
 
 
 class LoadBalancer:

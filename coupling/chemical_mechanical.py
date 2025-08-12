@@ -69,7 +69,7 @@ class ArrheniusReactionModel(ChemicalReactionModel):
                  reaction_order: float = 1.0,
                  gas_constant: float = 8.314,  # J/(mol·K)
                  name: str = "Arrhenius Reaction Model"):
-        super().__init__(name)
+        super().__init__()
         self.pre_exponential_factor = pre_exponential_factor
         self.activation_energy = activation_energy
         self.reaction_order = reaction_order
@@ -98,6 +98,453 @@ class ArrheniusReactionModel(ChemicalReactionModel):
                                          pressure: np.ndarray) -> np.ndarray:
         """计算平衡浓度"""
         # 简化的平衡浓度计算
+        # 基于温度和压力的平衡浓度
+        T_ref = 298.15  # 参考温度 [K]
+        P_ref = 1e5     # 参考压力 [Pa]
+        
+        # 温度影响
+        temperature_factor = np.exp(-1000 * (1.0 / temperature - 1.0 / T_ref))
+        
+        # 压力影响
+        pressure_factor = np.exp(-1e-9 * (pressure - P_ref))
+        
+        # 平衡浓度
+        equilibrium_concentration = 1.0 * temperature_factor * pressure_factor
+        
+        return equilibrium_concentration
+
+
+class MineralDissolutionModel(ChemicalReactionModel):
+    """矿物溶解模型 - 考虑对岩体强度的影响"""
+    
+    def __init__(self,
+                 mineral_type: str = "calcite",
+                 dissolution_rate: float = 1e-8,  # mol/(m²·s)
+                 surface_area: float = 1e3,       # m²/m³
+                 activation_energy: float = 50e3,  # J/mol
+                 name: str = "Mineral Dissolution Model"):
+        super().__init__()
+        self.mineral_type = mineral_type
+        self.dissolution_rate = dissolution_rate
+        self.surface_area = surface_area
+        self.activation_energy = activation_energy
+        
+        # 矿物性质
+        self.mineral_properties = {
+            'calcite': {
+                'molar_mass': 100.09,      # g/mol
+                'density': 2710.0,         # kg/m³
+                'strength_contribution': 0.3,  # 强度贡献因子
+                'solubility_product': 1e-8.48  # 溶度积
+            },
+            'quartz': {
+                'molar_mass': 60.08,
+                'density': 2650.0,
+                'strength_contribution': 0.4,
+                'solubility_product': 1e-9.96
+            },
+            'clay': {
+                'molar_mass': 258.0,
+                'density': 2600.0,
+                'strength_contribution': 0.2,
+                'solubility_product': 1e-7.0
+            }
+        }
+    
+    def compute_dissolution_rate(self, 
+                                concentration: np.ndarray,
+                                temperature: np.ndarray,
+                                pressure: np.ndarray,
+                                ph: np.ndarray) -> np.ndarray:
+        """计算矿物溶解速率"""
+        # 获取矿物性质
+        props = self.mineral_properties.get(self.mineral_type, self.mineral_properties['calcite'])
+        
+        # 温度影响（Arrhenius关系）
+        T_ref = 298.15
+        gas_constant = 8.314
+        temperature_factor = np.exp(-self.activation_energy / gas_constant * (1.0 / temperature - 1.0 / T_ref))
+        
+        # pH影响
+        ph_factor = np.where(ph < 7.0, 1.0 + 0.5 * (7.0 - ph), 1.0)
+        
+        # 浓度影响（远离平衡）
+        equilibrium_conc = props['solubility_product'] * np.ones_like(concentration)
+        concentration_factor = np.maximum(0.0, 1.0 - concentration / (equilibrium_conc + 1e-12))
+        
+        # 总溶解速率
+        dissolution_rate = (self.dissolution_rate * self.surface_area * 
+                          temperature_factor * ph_factor * concentration_factor)
+        
+        return dissolution_rate
+    
+    def compute_strength_degradation(self, 
+                                   initial_mineral_content: np.ndarray,
+                                   dissolved_mineral: np.ndarray,
+                                   time: float) -> Dict[str, np.ndarray]:
+        """计算强度退化"""
+        props = self.mineral_properties.get(self.mineral_type, self.mineral_properties['calcite'])
+        
+        # 剩余矿物含量
+        remaining_mineral = np.maximum(0.0, initial_mineral_content - dissolved_mineral)
+        mineral_fraction = remaining_mineral / (initial_mineral_content + 1e-12)
+        
+        # 强度退化因子
+        strength_degradation = 1.0 - props['strength_contribution'] * (1.0 - mineral_fraction)
+        
+        # 弹性模量退化
+        youngs_modulus_factor = strength_degradation ** 1.5  # 非线性关系
+        
+        # 内聚力退化
+        cohesion_factor = strength_degradation ** 2.0
+        
+        # 摩擦角变化（矿物溶解增加摩擦角）
+        friction_angle_change = 5.0 * (1.0 - mineral_fraction)  # 度
+        
+        return {
+            'strength_degradation': strength_degradation,
+            'youngs_modulus_factor': youngs_modulus_factor,
+            'cohesion_factor': cohesion_factor,
+            'friction_angle_change': friction_angle_change,
+            'remaining_mineral_fraction': mineral_fraction
+        }
+
+
+class MineralPrecipitationModel(ChemicalReactionModel):
+    """矿物沉淀模型 - 考虑对岩体强度的影响"""
+    
+    def __init__(self,
+                 mineral_type: str = "calcite",
+                 precipitation_rate: float = 1e-9,  # mol/(m³·s)
+                 nucleation_rate: float = 1e6,      # 1/(m³·s)
+                 growth_rate: float = 1e-10,        # m/s
+                 name: str = "Mineral Precipitation Model"):
+        super().__init__()
+        self.mineral_type = mineral_type
+        self.precipitation_rate = precipitation_rate
+        self.nucleation_rate = nucleation_rate
+        self.growth_rate = growth_rate
+        
+        # 沉淀矿物性质
+        self.precipitation_properties = {
+            'calcite': {
+                'crystal_structure': 'rhombohedral',
+                'strength_enhancement': 0.2,  # 强度增强因子
+                'porosity_reduction': 0.1,    # 孔隙度减少因子
+                'cementation_factor': 0.3     # 胶结因子
+            },
+            'quartz': {
+                'crystal_structure': 'hexagonal',
+                'strength_enhancement': 0.25,
+                'porosity_reduction': 0.08,
+                'cementation_factor': 0.25
+            },
+            'clay': {
+                'crystal_structure': 'layered',
+                'strength_enhancement': 0.15,
+                'porosity_reduction': 0.12,
+                'cementation_factor': 0.2
+            }
+        }
+    
+    def compute_precipitation_rate(self, 
+                                 concentration: np.ndarray,
+                                 temperature: np.ndarray,
+                                 pressure: np.ndarray,
+                                 supersaturation: np.ndarray) -> np.ndarray:
+        """计算矿物沉淀速率"""
+        props = self.precipitation_properties.get(self.mineral_type, self.precipitation_properties['calcite'])
+        
+        # 温度影响
+        T_ref = 298.15
+        temperature_factor = np.exp(-2000 * (1.0 / temperature - 1.0 / T_ref))
+        
+        # 过饱和度影响
+        supersaturation_factor = np.maximum(0.0, supersaturation - 1.0)
+        
+        # 总沉淀速率
+        precipitation_rate = (self.precipitation_rate * temperature_factor * 
+                            supersaturation_factor ** 2.0)
+        
+        return precipitation_rate
+    
+    def compute_strength_enhancement(self, 
+                                   precipitated_mineral: np.ndarray,
+                                   initial_porosity: np.ndarray,
+                                   time: float) -> Dict[str, np.ndarray]:
+        """计算强度增强"""
+        props = self.precipitation_properties.get(self.mineral_type, self.precipitation_properties['calcite'])
+        
+        # 矿物含量增加
+        mineral_increase = precipitated_mineral / (1.0 + precipitated_mineral)
+        
+        # 强度增强因子
+        strength_enhancement = 1.0 + props['strength_enhancement'] * mineral_increase
+        
+        # 孔隙度减少
+        porosity_reduction = props['porosity_reduction'] * mineral_increase
+        current_porosity = initial_porosity * (1.0 - porosity_reduction)
+        
+        # 胶结增强
+        cementation_factor = 1.0 + props['cementation_factor'] * mineral_increase
+        
+        # 弹性模量增强
+        youngs_modulus_enhancement = strength_enhancement ** 1.2
+        
+        # 内聚力增强
+        cohesion_enhancement = strength_enhancement ** 1.5
+        
+        return {
+            'strength_enhancement': strength_enhancement,
+            'porosity_reduction': porosity_reduction,
+            'current_porosity': current_porosity,
+            'cementation_factor': cementation_factor,
+            'youngs_modulus_enhancement': youngs_modulus_enhancement,
+            'cohesion_enhancement': cohesion_enhancement
+        }
+
+
+class ChemicalMechanicalCoupling:
+    """化学-力学耦合求解器 - 增强版"""
+    
+    def __init__(self, 
+                 chemical_model: ChemicalReactionModel,
+                 mechanical_model: 'MechanicalModel',
+                 dissolution_model: MineralDissolutionModel = None,
+                 precipitation_model: MineralPrecipitationModel = None):
+        self.chemical_model = chemical_model
+        self.mechanical_model = mechanical_model
+        self.dissolution_model = dissolution_model
+        self.precipitation_model = precipitation_model
+        
+        self.coupling_history = []
+        self.convergence_criteria = {
+            'max_iterations': 100,
+            'tolerance': 1e-6,
+            'relaxation_factor': 0.8
+        }
+        
+        # 岩体强度参数
+        self.initial_strength_params = {
+            'youngs_modulus': 30e9,      # Pa
+            'poissons_ratio': 0.25,
+            'cohesion': 20e6,            # Pa
+            'friction_angle': 30.0,      # 度
+            'tensile_strength': 5e6      # Pa
+        }
+    
+    def solve_coupled_system(self, 
+                           initial_state: ChemicalMechanicalState,
+                           boundary_conditions: Dict,
+                           time_steps: int = 100,
+                           dt: float = 0.01) -> List[ChemicalMechanicalState]:
+        """求解耦合系统"""
+        print("🔄 开始求解化学-力学耦合系统...")
+        
+        states = [initial_state]
+        current_state = initial_state
+        
+        for step in range(time_steps):
+            print(f"   时间步 {step+1}/{time_steps}")
+            
+            # 化学反应求解
+            chemical_state = self._solve_chemical_field(current_state, boundary_conditions)
+            
+            # 力学场求解
+            mechanical_state = self._solve_mechanical_field(current_state, chemical_state, boundary_conditions)
+            
+            # 强度演化计算
+            strength_evolution = self._compute_strength_evolution(current_state, chemical_state, step * dt)
+            
+            # 耦合迭代
+            coupled_state = self._coupling_iteration(chemical_state, mechanical_state, strength_evolution, boundary_conditions)
+            
+            # 更新状态
+            current_state = coupled_state
+            current_state.time = (step + 1) * dt
+            states.append(current_state)
+            
+            # 检查收敛性
+            if self._check_convergence(coupled_state, states[-2]):
+                print(f"   收敛于时间步 {step+1}")
+                break
+        
+        print("✅ 化学-力学耦合系统求解完成")
+        return states
+    
+    def _solve_chemical_field(self, 
+                            current_state: ChemicalMechanicalState,
+                            boundary_conditions: Dict) -> ChemicalMechanicalState:
+        """求解化学场"""
+        # 计算反应速率
+        reaction_rate = self.chemical_model.compute_reaction_rate(
+            current_state.concentration,
+            np.ones_like(current_state.concentration) * 298.15,  # 简化温度
+            np.ones_like(current_state.concentration) * 1e5     # 简化压力
+        )
+        
+        # 更新浓度
+        concentration = current_state.concentration + reaction_rate * 0.01  # 时间步长
+        
+        # 更新状态
+        chemical_state = ChemicalMechanicalState(
+            concentration=concentration,
+            displacement=current_state.displacement,
+            stress=current_state.stress,
+            strain=current_state.strain,
+            chemical_strain=current_state.chemical_strain,
+            reaction_rate=reaction_rate,
+            diffusion_flux=current_state.diffusion_flux,
+            time=current_state.time
+        )
+        
+        return chemical_state
+    
+    def _solve_mechanical_field(self, 
+                              current_state: ChemicalMechanicalState,
+                              chemical_state: ChemicalMechanicalState,
+                              boundary_conditions: Dict) -> ChemicalMechanicalState:
+        """求解力学场"""
+        # 简化的力学求解
+        # 在实际应用中，这里应该求解完整的力学方程
+        
+        # 更新位移（简化）
+        displacement = current_state.displacement + 0.1 * np.random.randn(*current_state.displacement.shape)
+        
+        # 更新状态
+        mechanical_state = ChemicalMechanicalState(
+            concentration=chemical_state.concentration,
+            displacement=displacement,
+            stress=current_state.stress,
+            strain=current_state.strain,
+            chemical_strain=current_state.chemical_strain,
+            reaction_rate=chemical_state.reaction_rate,
+            diffusion_flux=current_state.diffusion_flux,
+            time=chemical_state.time
+        )
+        
+        return mechanical_state
+    
+    def _compute_strength_evolution(self, 
+                                  current_state: ChemicalMechanicalState,
+                                  chemical_state: ChemicalMechanicalState,
+                                  time: float) -> Dict[str, np.ndarray]:
+        """计算强度演化"""
+        strength_evolution = {}
+        
+        # 矿物溶解影响
+        if self.dissolution_model is not None:
+            # 模拟溶解过程
+            initial_mineral_content = np.ones_like(chemical_state.concentration) * 0.3
+            dissolved_mineral = chemical_state.reaction_rate * time
+            
+            dissolution_effects = self.dissolution_model.compute_strength_degradation(
+                initial_mineral_content, dissolved_mineral, time
+            )
+            
+            strength_evolution.update({
+                'dissolution_effects': dissolution_effects,
+                'strength_degradation': dissolution_effects['strength_degradation']
+            })
+        
+        # 矿物沉淀影响
+        if self.precipitation_model is not None:
+            # 模拟沉淀过程
+            precipitated_mineral = chemical_state.reaction_rate * time * 0.1
+            initial_porosity = np.ones_like(chemical_state.concentration) * 0.2
+            
+            precipitation_effects = self.precipitation_model.compute_strength_enhancement(
+                precipitated_mineral, initial_porosity, time
+            )
+            
+            strength_evolution.update({
+                'precipitation_effects': precipitation_effects,
+                'strength_enhancement': precipitation_effects['strength_enhancement']
+            })
+        
+        # 综合强度演化
+        if 'strength_degradation' in strength_evolution and 'strength_enhancement' in strength_evolution:
+            # 溶解和沉淀的综合效应
+            net_strength_change = (strength_evolution['strength_enhancement'] * 
+                                 strength_evolution['strength_degradation'])
+            strength_evolution['net_strength_change'] = net_strength_change
+        elif 'strength_degradation' in strength_evolution:
+            strength_evolution['net_strength_change'] = strength_evolution['strength_degradation']
+        elif 'strength_enhancement' in strength_evolution:
+            strength_evolution['net_strength_change'] = strength_evolution['strength_enhancement']
+        else:
+            strength_evolution['net_strength_change'] = np.ones_like(chemical_state.concentration)
+        
+        return strength_evolution
+    
+    def _coupling_iteration(self, 
+                           chemical_state: ChemicalMechanicalState,
+                           mechanical_state: ChemicalMechanicalState,
+                           strength_evolution: Dict,
+                           boundary_conditions: Dict) -> ChemicalMechanicalState:
+        """耦合迭代"""
+        # 考虑强度演化对力学性质的影响
+        net_strength_change = strength_evolution.get('net_strength_change', 
+                                                   np.ones_like(chemical_state.concentration))
+        
+        # 更新应力（强度变化影响应力分布）
+        updated_stress = mechanical_state.stress * net_strength_change.reshape(-1, 1)
+        
+        # 更新状态
+        coupled_state = ChemicalMechanicalState(
+            concentration=chemical_state.concentration,
+            displacement=mechanical_state.displacement,
+            stress=updated_stress,
+            strain=mechanical_state.strain,
+            chemical_strain=mechanical_state.chemical_strain,
+            reaction_rate=chemical_state.reaction_rate,
+            diffusion_flux=chemical_state.diffusion_flux,
+            time=chemical_state.time
+        )
+        
+        return coupled_state
+    
+    def _check_convergence(self, 
+                          current_state: ChemicalMechanicalState,
+                          previous_state: ChemicalMechanicalState) -> bool:
+        """检查收敛性"""
+        # 计算状态变化
+        concentration_change = np.mean(np.abs(
+            current_state.concentration - previous_state.concentration
+        ))
+        displacement_change = np.mean(np.abs(
+            current_state.displacement - previous_state.displacement
+        ))
+        
+        # 检查是否收敛
+        max_change = max(concentration_change, displacement_change)
+        return max_change < self.convergence_criteria['tolerance']
+    
+    def get_strength_evolution_summary(self, states: List[ChemicalMechanicalState]) -> Dict:
+        """获取强度演化总结"""
+        if not states:
+            return {}
+        
+        # 分析强度变化趋势
+        final_state = states[-1]
+        initial_state = states[0]
+        
+        # 强度变化
+        strength_change = np.mean(final_state.stress) / (np.mean(initial_state.stress) + 1e-12)
+        
+        # 化学影响
+        chemical_influence = np.mean(final_state.reaction_rate) / (np.mean(initial_state.reaction_rate) + 1e-12)
+        
+        summary = {
+            'total_time_steps': len(states),
+            'final_time': final_state.time,
+            'strength_change_factor': strength_change,
+            'chemical_influence_factor': chemical_influence,
+            'final_concentration': np.mean(final_state.concentration),
+            'final_displacement': np.mean(np.abs(final_state.displacement))
+        }
+        
+        return summary
         temperature_safe = np.maximum(temperature, 1e-6)
         
         # 基于温度的平衡浓度
