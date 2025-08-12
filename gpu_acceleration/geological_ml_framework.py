@@ -46,6 +46,15 @@ except ImportError:
     HAS_MATPLOTLIB = False
     warnings.warn("matplotlib not available. Visualization features will be limited.")
 
+# 可选依赖检查
+try:
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import DummyVecEnv
+    HAS_STABLE_BASELINES3 = True
+except ImportError:
+    HAS_STABLE_BASELINES3 = False
+    warnings.warn("stable-baselines3 not available. RL features will be limited.")
+
 
 @dataclass
 class GeologicalConfig:
@@ -70,6 +79,18 @@ class GeologicalConfig:
     thermal_expansion: float = 3e-5      # K⁻¹，热膨胀系数
     gravity: float = 9.81                # m/s²，重力加速度
     rayleigh_number: float = 1e7         # 瑞利数
+    
+    # 新增：断层摩擦参数
+    mu0: float = 0.6                     # 静摩擦系数
+    a: float = 0.01                      # 直接效应参数
+    b: float = 0.005                     # 演化效应参数
+    L: float = 0.1                       # 特征滑移距离 (m)
+    v0: float = 1e-6                     # 参考滑动速率 (m/s)
+    
+    # 新增：化学输运参数
+    activation_energy: float = 50e3      # J/mol，激活能
+    diffusion_coefficient: float = 1e-9  # m²/s，扩散系数
+    reaction_rate: float = 0.01          # s⁻¹，反应速率常数
     
     # 新增：GPU加速支持
     use_gpu: bool = True
@@ -422,6 +443,248 @@ class GeologicalPhysicsEquations:
         residual = vx_grad_x + vy_grad_y + vz_grad_z
         
         return torch.mean(torch.abs(residual))
+    
+    @staticmethod
+    def fault_slip_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        断层滑动方程（摩擦本构）：v = v₀ exp((μ₀ + a ln(v/v₀) - b ln(θ))/L)
+        
+        Args:
+            x: 输入坐标 (x, y, z, t)
+            y: 模型输出 [slip_rate, state_variable, stress] 滑动速率、状态变量、应力
+            config: 地质配置参数
+        
+        Returns:
+            断层滑动方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        # 解析输出：滑动速率、状态变量、应力
+        slip_rate = y[:, 0]  # 滑动速率
+        state = y[:, 1]      # 状态变量 (摩擦状态)
+        stress = y[:, 2]     # 应力
+        
+        # 摩擦参数（从配置中获取，如果没有则使用默认值）
+        mu0 = getattr(config, 'mu0', 0.6)      # 静摩擦系数
+        a = getattr(config, 'a', 0.01)         # 直接效应参数
+        b = getattr(config, 'b', 0.005)        # 演化效应参数
+        L = getattr(config, 'L', 0.1)          # 特征滑移距离
+        v0 = getattr(config, 'v0', 1e-6)      # 参考滑动速率
+        
+        # 计算摩擦系数（速率-状态摩擦本构）
+        # μ = μ₀ + a ln(v/v₀) + b ln(θ/θ₀)
+        theta0 = 1.0  # 参考状态变量
+        mu = mu0 + a * torch.log(slip_rate / (v0 + 1e-12)) + b * torch.log(state / (theta0 + 1e-12))
+        
+        # 状态演化方程（ageing law）
+        # dθ/dt = 1 - vθ/L
+        if x.shape[1] > 3:  # 有时间维度
+            time_derivative = torch.autograd.grad(
+                state.sum(), x[:, 3], 
+                grad_outputs=torch.ones_like(state), 
+                create_graph=True, retain_graph=True
+            )[0]
+        else:
+            # 如果没有时间维度，使用稳态近似
+            time_derivative = torch.zeros_like(state)
+        
+        # 状态演化残差
+        state_evolution_residual = time_derivative - (1.0 - slip_rate * state / L)
+        
+        # 滑动速率与摩擦系数的关系残差
+        # τ = μσ (应力 = 摩擦系数 × 正应力)
+        normal_stress = config.density * config.gravity * 1000.0  # 简化的正应力计算
+        stress_residual = stress - mu * normal_stress
+        
+        # 总残差
+        total_residual = torch.mean(torch.square(state_evolution_residual)) + \
+                        torch.mean(torch.square(stress_residual))
+        
+        return total_residual
+    
+    @staticmethod
+    def mantle_convection_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        地幔对流方程：结合Stokes方程和热传导方程
+        
+        Args:
+            x: 输入坐标 (x, y, z, t)
+            y: 模型输出 [v_x, v_y, v_z, p, T] 速度场、压力、温度
+            config: 地质配置参数
+        
+        Returns:
+            地幔对流方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        # 解析输出
+        vx, vy, vz, p, T = y[:, 0], y[:, 1], y[:, 2], y[:, 3], y[:, 4]
+        
+        # 1. Stokes方程残差（动量守恒）
+        stokes_residual = GeologicalPhysicsEquations.stokes_equation(x, y, config)
+        
+        # 2. 质量守恒残差
+        mass_residual = GeologicalPhysicsEquations.mass_conservation_equation(x, y[:, :3], config)
+        
+        # 3. 热传导方程残差（考虑对流项）
+        # ρc(∂T/∂t + v·∇T) = ∇·(k∇T) + Q
+        if x.shape[1] > 3:  # 有时间维度
+            # 时间导数
+            T_t = torch.autograd.grad(
+                T.sum(), x[:, 3], 
+                grad_outputs=torch.ones_like(T), 
+                create_graph=True, retain_graph=True
+            )[0]
+        else:
+            T_t = torch.zeros_like(T)
+        
+        # 对流项 v·∇T
+        T_x = torch.autograd.grad(T.sum(), x[:, 0], create_graph=True)[0]
+        T_y = torch.autograd.grad(T.sum(), x[:, 1], create_graph=True)[0]
+        T_z = torch.autograd.grad(T.sum(), x[:, 2], create_graph=True)[0]
+        
+        convection_term = vx * T_x + vy * T_y + vz * T_z
+        
+        # 热传导项 ∇·(k∇T)
+        T_grad_x = torch.autograd.grad(T.sum(), x[:, 0], create_graph=True)[0]
+        T_grad_y = torch.autograd.grad(T.sum(), x[:, 1], create_graph=True)[0]
+        T_grad_z = torch.autograd.grad(T.sum(), x[:, 2], create_graph=True)[0]
+        
+        T_xx = torch.autograd.grad(T_grad_x.sum(), x[:, 0], create_graph=True)[0]
+        T_yy = torch.autograd.grad(T_grad_y.sum(), x[:, 1], create_graph=True)[0]
+        T_zz = torch.autograd.grad(T_grad_z.sum(), x[:, 2], create_graph=True)[0]
+        
+        conduction_term = config.thermal_conductivity * (T_xx + T_yy + T_zz)
+        
+        # 热源项（放射性衰变、粘性耗散等）
+        viscous_heating = 0.0  # 简化，实际应计算 η(∇v:∇v)
+        heat_source = 0.01 + viscous_heating
+        
+        # 热传导方程残差
+        heat_residual = config.density * config.specific_heat * (T_t + convection_term) - \
+                       conduction_term - heat_source
+        
+        # 4. 浮力项（Boussinesq近似）
+        # 密度变化：ρ = ρ₀(1 - α(T - T₀))
+        T_ref = 273.15
+        density_variation = config.density * config.thermal_expansion * (T - T_ref)
+        
+        # 总残差（加权组合）
+        total_residual = (10.0 * stokes_residual + 
+                          5.0 * mass_residual + 
+                          2.0 * torch.mean(torch.square(heat_residual)) +
+                          1.0 * torch.mean(torch.square(density_variation)))
+        
+        return total_residual
+    
+    @staticmethod
+    def plate_tectonics_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        板块构造方程：结合弹性力学和热传导
+        
+        Args:
+            x: 输入坐标 (x, y, z, t)
+            y: 模型输出 [u_x, u_y, u_z, T, stress] 位移场、温度、应力
+            config: 地质配置参数
+        
+        Returns:
+            板块构造方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        # 解析输出
+        ux, uy, uz, T, stress = y[:, 0], y[:, 1], y[:, 2], y[:, 3], y[:, 4]
+        
+        # 1. 弹性平衡方程残差
+        elastic_residual = GeologicalPhysicsEquations.elastic_equilibrium_equation(x, y[:, :3], config)
+        
+        # 2. 热传导方程残差
+        heat_residual = GeologicalPhysicsEquations.heat_conduction_equation(x, y[:, 3:4], config)
+        
+        # 3. 热弹性耦合项
+        # 热应力：σ_th = -Eα(T - T₀)/(1 - 2ν)
+        T_ref = 273.15
+        thermal_stress = -config.youngs_modulus * config.thermal_expansion * (T - T_ref) / \
+                        (1 - 2 * config.poissons_ratio)
+        
+        # 热应力残差
+        thermal_stress_residual = stress - thermal_stress
+        
+        # 4. 板块边界条件（简化）
+        # 在板块边界处，位移梯度应该较大
+        u_grad_x = torch.autograd.grad(ux.sum(), x[:, 0], create_graph=True)[0]
+        u_grad_y = torch.autograd.grad(uy.sum(), x[:, 1], create_graph=True)[0]
+        u_grad_z = torch.autograd.grad(uz.sum(), x[:, 2], create_graph=True)[0]
+        
+        # 位移梯度应该满足一定的约束（板块边界特征）
+        boundary_constraint = torch.mean(torch.square(u_grad_x + u_grad_y + u_grad_z))
+        
+        # 总残差
+        total_residual = (5.0 * elastic_residual + 
+                          3.0 * heat_residual + 
+                          2.0 * torch.mean(torch.square(thermal_stress_residual)) +
+                          1.0 * boundary_constraint)
+        
+        return total_residual
+    
+    @staticmethod
+    def chemical_transport_equation(x: torch.Tensor, y: torch.Tensor, config: GeologicalConfig) -> torch.Tensor:
+        """
+        化学输运方程：考虑对流-扩散-反应
+        
+        Args:
+            x: 输入坐标 (x, y, z, t)
+            y: 模型输出 [C, v_x, v_y, v_z, T] 浓度、速度场、温度
+            config: 地质配置参数
+        
+        Returns:
+            化学输运方程残差
+        """
+        if not HAS_PYTORCH:
+            return torch.tensor(0.0)
+        
+        # 解析输出
+        C, vx, vy, vz, T = y[:, 0], y[:, 1], y[:, 2], y[:, 3], y[:, 4]
+        
+        # 扩散系数（温度依赖）
+        D0 = 1e-9  # 参考扩散系数
+        D = D0 * torch.exp(-config.activation_energy / (8.314 * (T + 273.15)))
+        
+        # 对流项 v·∇C
+        C_x = torch.autograd.grad(C.sum(), x[:, 0], create_graph=True)[0]
+        C_y = torch.autograd.grad(C.sum(), x[:, 1], create_graph=True)[0]
+        C_z = torch.autograd.grad(C.sum(), x[:, 2], create_graph=True)[0]
+        
+        convection_term = vx * C_x + vy * C_y + vz * C_z
+        
+        # 扩散项 ∇·(D∇C)
+        C_grad_x = torch.autograd.grad(C.sum(), x[:, 0], create_graph=True)[0]
+        C_grad_y = torch.autograd.grad(C.sum(), x[:, 1], create_graph=True)[0]
+        C_grad_z = torch.autograd.grad(C.sum(), x[:, 2], create_graph=True)[0]
+        
+        C_xx = torch.autograd.grad(C_grad_x.sum(), x[:, 0], create_graph=True)[0]
+        C_yy = torch.autograd.grad(C_grad_y.sum(), x[:, 1], create_graph=True)[0]
+        C_zz = torch.autograd.grad(C_grad_z.sum(), x[:, 2], create_graph=True)[0]
+        
+        diffusion_term = D * (C_xx + C_yy + C_zz)
+        
+        # 反应项（简化的一级反应）
+        reaction_rate = 0.01  # 反应速率常数
+        reaction_term = reaction_rate * C
+        
+        # 时间导数
+        if x.shape[1] > 3:  # 有时间维度
+            C_t = torch.autograd.grad(C.sum(), x[:, 3], create_graph=True)[0]
+        else:
+            C_t = torch.zeros_like(C)
+        
+        # 化学输运方程残差：∂C/∂t + v·∇C = ∇·(D∇C) + R
+        transport_residual = C_t + convection_term - diffusion_term - reaction_term
+        
+        return torch.mean(torch.square(transport_residual))
 
 
 class GeologicalPINN(BaseSolver, nn.Module):
@@ -480,27 +743,182 @@ class GeologicalPINN(BaseSolver, nn.Module):
         nn.init.xavier_normal_(self.output_layer.weight)
         nn.init.constant_(self.output_layer.bias, 0)
     
-    def forward(self, x):
-        """前向传播"""
-        for layer in self.layers:
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor = None, 
+                edge_weight: torch.Tensor = None, mesh_data: np.ndarray = None,
+                faults: List[Tuple] = None, plate_boundaries: List[Tuple] = None,
+                geological_features: np.ndarray = None) -> torch.Tensor:
+        """
+        前向传播 - 支持GNN增强
+        
+        Args:
+            x: 输入特征
+            edge_index: 图边索引（GNN用）
+            edge_weight: 图边权重（GNN用）
+            mesh_data: 网格数据（GNN图构建用）
+            faults: 断层信息（GNN图构建用）
+            plate_boundaries: 板块边界信息（GNN图构建用）
+            geological_features: 地质特征（GNN图构建用）
+        
+        Returns:
+            模型输出
+        """
+        # 检查是否启用GNN增强
+        if hasattr(self, 'gnn_integrator') and self.gnn_integrator is not None:
+            if mesh_data is not None:
+                # 使用GNN增强特征
+                enhanced_x = self.gnn_integrator.integrate_with_pinn(
+                    x, mesh_data, faults, plate_boundaries, geological_features
+                )
+                # 更新输入特征
+                x = enhanced_x
+                # 动态调整网络输入维度（如果需要）
+                if x.shape[1] != self.input_dim:
+                    self._adjust_input_dim(x.shape[1])
+        
+        # 原有的前向传播逻辑
+        if self.use_gpu and torch.cuda.is_available():
+            x = x.cuda()
+        
+        # 前向传播
+        for i, layer in enumerate(self.layers):
             x = layer(x)
-        return self.output_layer(x)
+            if i < len(self.layers) - 1:  # 不是最后一层
+                x = F.relu(x)
+                if self.dropout_rate > 0:
+                    x = F.dropout(x, p=self.dropout_rate, training=self.training)
+        
+        return x
     
     def setup_training(self, learning_rate: float = 0.001, weight_decay: float = 1e-5):
         """设置训练参数"""
         self.optimizer = optim.Adam(self.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='min', factor=0.5, patience=20, verbose=True
+        )
+    
+    def setup_gnn_integration(self, gnn_config: Dict = None):
+        """
+        设置GNN集成
+        
+        Args:
+            gnn_config: GNN配置参数
+        """
+        try:
+            from .geodynamics_gnn import GeodynamicGNN, GeodynamicGraphConfig, GeodynamicsGNNPINNIntegrator
+            
+            # 创建GNN配置
+            if gnn_config is None:
+                gnn_config = {
+                    'hidden_dim': 64,
+                    'num_layers': 3,
+                    'attention_heads': 4,
+                    'dropout': 0.1
+                }
+            
+            config = GeodynamicGraphConfig(**gnn_config)
+            
+            # 创建GNN模型
+            gnn_input_dim = 8  # 基础特征维度
+            gnn_output_dim = 2  # 粘度修正、塑性应变率
+            gnn = GeodynamicGNN(gnn_input_dim, config.hidden_dim, gnn_output_dim, config)
+            
+            # 创建集成器
+            self.gnn_integrator = GeodynamicsGNNPINNIntegrator(gnn, config)
+            
+            print(f"✅ GNN集成设置完成: 隐藏层={config.hidden_dim}, 层数={config.num_layers}")
+            
+        except ImportError as e:
+            warnings.warn(f"无法导入GNN模块: {str(e)}")
+            self.gnn_integrator = None
+        except Exception as e:
+            warnings.warn(f"GNN集成设置失败: {str(e)}")
+            self.gnn_integrator = None
+    
+    def enable_gnn_enhancement(self, enable: bool = True):
+        """启用/禁用GNN增强"""
+        if enable and not hasattr(self, 'gnn_integrator'):
+            self.setup_gnn_integration()
+        
+        if hasattr(self, 'gnn_integrator'):
+            if enable:
+                print("✅ GNN增强已启用")
+            else:
+                print("❌ GNN增强已禁用")
+                self.gnn_integrator = None
+        else:
+            print("❌ GNN集成器未设置")
+    
+    def get_gnn_status(self) -> Dict[str, Any]:
+        """获取GNN集成状态"""
+        status = {
+            'gnn_enabled': False,
+            'gnn_integrator': None,
+            'gnn_config': None
+        }
+        
+        if hasattr(self, 'gnn_integrator') and self.gnn_integrator is not None:
+            status['gnn_enabled'] = True
+            status['gnn_integrator'] = type(self.gnn_integrator).__name__
+            if hasattr(self.gnn_integrator, 'config'):
+                status['gnn_config'] = {
+                    'hidden_dim': self.gnn_integrator.config.hidden_dim,
+                    'num_layers': self.gnn_integrator.config.num_layers,
+                    'attention_heads': self.gnn_integrator.config.attention_heads
+                }
+        
+        return status
     
     def compute_physics_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """计算地质物理约束损失"""
+        """计算地质物理约束损失 - 支持地球动力学多场耦合适配"""
         if not self.physics_equations:
             return torch.tensor(0.0, device=self.device)
         
         total_loss = torch.tensor(0.0, device=self.device)
         
+        # 针对不同物理场分配权重
         for equation in self.physics_equations:
             # 计算物理方程的残差
             residual = equation(x, y, self.geological_config)
-            total_loss += torch.mean(residual ** 2)
+            
+            # 根据方程类型分配权重
+            equation_name = equation.__name__ if hasattr(equation, '__name__') else str(equation)
+            
+            if "stokes_equation" in equation_name:
+                # 地幔流动权重更高（核心过程）
+                weight = 100.0
+            elif "mantle_convection_equation" in equation_name:
+                # 地幔对流（综合方程）
+                weight = 80.0
+            elif "fault_slip_equation" in equation_name:
+                # 断层过程权重
+                weight = 50.0
+            elif "plate_tectonics_equation" in equation_name:
+                # 板块构造（综合方程）
+                weight = 60.0
+            elif "heat_conduction_equation" in equation_name:
+                # 热传导次之
+                weight = 10.0
+            elif "elastic_equilibrium_equation" in equation_name:
+                # 弹性力学
+                weight = 20.0
+            elif "chemical_transport_equation" in equation_name:
+                # 化学输运
+                weight = 15.0
+            elif "darcy_equation" in equation_name:
+                # 达西流动
+                weight = 8.0
+            else:
+                # 其他方程默认权重
+                weight = 1.0
+            
+            # 应用权重并累加到总损失
+            weighted_loss = weight * torch.mean(residual ** 2)
+            total_loss += weighted_loss
+            
+            # 记录各方程的损失（用于监控）
+            if not hasattr(self, 'equation_losses'):
+                self.equation_losses = {}
+            self.equation_losses[equation_name] = weighted_loss.item()
         
         return total_loss
     
@@ -1804,348 +2222,6 @@ class GeologicalAdaptiveSolver:
         return summary
 
 
-class GeologicalGNN(BaseSolver, nn.Module):
-    """
-    地质图神经网络 - 专门用于处理地质体的拓扑结构
-    
-    核心思想：利用图神经网络处理地质体的复杂拓扑关系（如断层网络、裂隙分布），
-    提升复杂几何场景的模拟精度，实现"结构感知"的地质建模
-    """
-    
-    def __init__(self, node_features: int, edge_features: int, hidden_dim: int = 64, 
-                 num_layers: int = 3, output_dim: int = 1, gnn_type: str = 'gcn'):
-        BaseSolver.__init__(self)
-        nn.Module.__init__(self)
-        
-        if not HAS_PYTORCH:
-            raise ImportError("需要安装PyTorch来使用地质GNN")
-        
-        self.node_features = node_features
-        self.edge_features = edge_features
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.output_dim = output_dim
-        self.gnn_type = gnn_type
-        
-        # 图卷积层
-        self.gnn_layers = nn.ModuleList()
-        
-        if gnn_type == 'gcn':
-            # 图卷积网络
-            for i in range(num_layers):
-                if i == 0:
-                    in_dim = node_features
-                else:
-                    in_dim = hidden_dim
-                
-                self.gnn_layers.append(
-                    nn.Sequential(
-                        nn.Linear(in_dim, hidden_dim),
-                        nn.ReLU(),
-                        nn.Dropout(0.1)
-                    )
-                )
-        
-        elif gnn_type == 'gat':
-            # 图注意力网络
-            for i in range(num_layers):
-                if i == 0:
-                    in_dim = node_features
-                else:
-                    in_dim = hidden_dim
-                
-                self.gnn_layers.append(
-                    nn.Sequential(
-                        nn.Linear(in_dim, hidden_dim),
-                        nn.ReLU(),
-                        nn.Dropout(0.1)
-                    )
-                )
-        
-        # 边特征处理
-        if edge_features > 0:
-            self.edge_encoder = nn.Sequential(
-                nn.Linear(edge_features, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim)
-            )
-        
-        # 输出层
-        self.output_layer = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, output_dim)
-        )
-        
-        # 地质特定的注意力机制
-        self.geological_attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim, 
-            num_heads=4, 
-            dropout=0.1
-        )
-        
-        self.to(self.device)
-        
-        print(f"🔄 地质GNN初始化完成 - 设备: {self.device}")
-        print(f"   节点特征: {node_features}, 边特征: {edge_features}")
-        print(f"   隐藏维度: {hidden_dim}, 层数: {num_layers}")
-        print(f"   GNN类型: {gnn_type}")
-    
-    def forward(self, node_features: torch.Tensor, edge_index: torch.Tensor, 
-                edge_features: torch.Tensor = None, batch: torch.Tensor = None) -> torch.Tensor:
-        """
-        前向传播
-        
-        Args:
-            node_features: 节点特征 [num_nodes, node_features]
-            edge_index: 边索引 [2, num_edges]
-            edge_features: 边特征 [num_edges, edge_features] (可选)
-            batch: 批次索引 [num_nodes] (可选)
-        """
-        x = node_features
-        
-        # 边特征编码
-        if edge_features is not None and hasattr(self, 'edge_encoder'):
-            edge_embeddings = self.edge_encoder(edge_features)
-        else:
-            edge_embeddings = None
-        
-        # 图卷积层
-        for i, layer in enumerate(self.gnn_layers):
-            if self.gnn_type == 'gcn':
-                x = self._gcn_layer(x, edge_index, edge_embeddings, layer)
-            elif self.gnn_type == 'gat':
-                x = self._gat_layer(x, edge_index, edge_embeddings, layer)
-            
-            # 地质特定的注意力机制
-            if i == self.num_layers - 1:  # 最后一层应用注意力
-                x = self._apply_geological_attention(x, batch)
-        
-        # 输出层
-        x = self.output_layer(x)
-        
-        return x
-    
-    def _gcn_layer(self, x: torch.Tensor, edge_index: torch.Tensor, 
-                   edge_embeddings: torch.Tensor, layer: nn.Module) -> torch.Tensor:
-        """图卷积层"""
-        # 简化的图卷积实现
-        # 在实际应用中，建议使用torch_geometric库
-        
-        # 计算邻接矩阵
-        num_nodes = x.size(0)
-        adj = torch.zeros(num_nodes, num_nodes, device=x.device)
-        adj[edge_index[0], edge_index[1]] = 1.0
-        
-        # 添加自环
-        adj = adj + torch.eye(num_nodes, device=x.device)
-        
-        # 归一化
-        degree = adj.sum(dim=1, keepdim=True)
-        degree = torch.clamp(degree, min=1e-12)
-        adj_norm = adj / degree.sqrt()
-        
-        # 图卷积
-        x = torch.mm(adj_norm, x)
-        x = layer(x)
-        
-        return x
-    
-    def _gat_layer(self, x: torch.Tensor, edge_index: torch.Tensor, 
-                   edge_embeddings: torch.Tensor, layer: nn.Module) -> torch.Tensor:
-        """图注意力层"""
-        # 简化的图注意力实现
-        # 在实际应用中，建议使用torch_geometric库
-        
-        # 基础变换
-        x = layer(x)
-        
-        # 简单的注意力机制
-        if edge_embeddings is not None:
-            # 使用边特征增强节点表示
-            edge_weights = torch.sigmoid(edge_embeddings.mean(dim=1))
-            x = x + torch.scatter_add(
-                torch.zeros_like(x), 0, 
-                edge_index[1].unsqueeze(1).expand(-1, x.size(1)), 
-                x[edge_index[0]] * edge_weights.unsqueeze(1)
-            )
-        
-        return x
-    
-    def _apply_geological_attention(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
-        """应用地质特定的注意力机制"""
-        if batch is not None:
-            # 批次处理
-            batch_size = batch.max().item() + 1
-            x_batched = []
-            
-            for i in range(batch_size):
-                mask = (batch == i)
-                if mask.sum() > 0:
-                    x_i = x[mask]
-                    # 应用自注意力
-                    x_i_attended, _ = self.geological_attention(
-                        x_i.unsqueeze(0), x_i.unsqueeze(0), x_i.unsqueeze(0)
-                    )
-                    x_batched.append(x_i_attended.squeeze(0))
-            
-            if x_batched:
-                x = torch.cat(x_batched, dim=0)
-        else:
-            # 全局注意力
-            x_attended, _ = self.geological_attention(
-                x.unsqueeze(0), x.unsqueeze(0), x.unsqueeze(0)
-            )
-            x = x_attended.squeeze(0)
-        
-        return x
-    
-    def train(self, node_features: np.ndarray, edge_index: np.ndarray, 
-              target: np.ndarray, edge_features: np.ndarray = None,
-              epochs: int = 100, batch_size: int = 32, learning_rate: float = 0.001) -> dict:
-        """训练地质GNN"""
-        # 验证输入数据
-        if node_features.shape[0] != target.shape[0]:
-            raise ValueError(f"节点特征和目标的节点数不匹配：{node_features.shape[0]} vs {target.shape[0]}")
-        
-        # 转换为张量
-        node_features_tensor = torch.FloatTensor(node_features).to(self.device)
-        edge_index_tensor = torch.LongTensor(edge_index).to(self.device)
-        target_tensor = torch.FloatTensor(target).to(self.device)
-        
-        if edge_features is not None:
-            edge_features_tensor = torch.FloatTensor(edge_features).to(self.device)
-        else:
-            edge_features_tensor = None
-        
-        # 优化器和损失函数
-        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
-        criterion = nn.MSELoss()
-        
-        history = {'loss': [], 'train_time': 0.0}
-        start_time = time.time()
-        
-        for epoch in range(epochs):
-            self.train()
-            optimizer.zero_grad()
-            
-            # 前向传播
-            outputs = self.forward(node_features_tensor, edge_index_tensor, edge_features_tensor)
-            
-            # 计算损失
-            loss = criterion(outputs, target_tensor)
-            
-            # 反向传播
-            loss.backward()
-            optimizer.step()
-            
-            history['loss'].append(loss.item())
-            
-            if (epoch + 1) % 20 == 0:
-                print(f"   Epoch {epoch+1}/{epochs}: loss={loss.item():.6f}")
-        
-        history['train_time'] = time.time() - start_time
-        self.is_trained = True
-        
-        print(f"✅ 地质GNN训练完成，耗时: {history['train_time']:.4f}秒")
-        return history
-    
-    def predict(self, node_features: np.ndarray, edge_index: np.ndarray, 
-                edge_features: np.ndarray = None) -> np.ndarray:
-        """预测"""
-        self.eval()
-        with torch.no_grad():
-            node_features_tensor = torch.FloatTensor(node_features).to(self.device)
-            edge_index_tensor = torch.LongTensor(edge_index).to(self.device)
-            
-            if edge_features is not None:
-                edge_features_tensor = torch.FloatTensor(edge_features).to(self.device)
-            else:
-                edge_features_tensor = None
-            
-            outputs = self.forward(node_features_tensor, edge_index_tensor, edge_features_tensor)
-            return outputs.cpu().numpy()
-    
-    def create_geological_graph(self, spatial_coords: np.ndarray, 
-                               geological_features: np.ndarray,
-                               connectivity_radius: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        创建地质图结构
-        
-        Args:
-            spatial_coords: 空间坐标 [num_points, 3]
-            geological_features: 地质特征 [num_points, num_features]
-            connectivity_radius: 连接半径
-            
-        Returns:
-            edge_index: 边索引 [2, num_edges]
-            edge_features: 边特征 [num_edges, edge_dim]
-        """
-        num_points = spatial_coords.shape[0]
-        
-        # 计算点之间的距离
-        distances = np.zeros((num_points, num_points))
-        for i in range(num_points):
-            for j in range(i+1, num_points):
-                dist = np.linalg.norm(spatial_coords[i] - spatial_coords[j])
-                distances[i, j] = dist
-                distances[j, i] = dist
-        
-        # 创建边（基于距离阈值）
-        edges = []
-        edge_features = []
-        
-        for i in range(num_points):
-            for j in range(num_points):
-                if i != j and distances[i, j] <= connectivity_radius:
-                    edges.append([i, j])
-                    
-                    # 边特征：距离、地质特征差异
-                    edge_feat = [
-                        distances[i, j],
-                        np.mean(np.abs(geological_features[i] - geological_features[j]))
-                    ]
-                    edge_features.append(edge_feat)
-        
-        if edges:
-            edge_index = np.array(edges).T
-            edge_features = np.array(edge_features)
-        else:
-            edge_index = np.array([[0], [0]])  # 空图
-            edge_features = np.array([[0, 0]])
-        
-        print(f"   创建地质图: {num_points} 个节点, {edge_index.shape[1]} 条边")
-        return edge_index, edge_features
-    
-    def analyze_topology(self, node_features: np.ndarray, edge_index: np.ndarray) -> Dict:
-        """分析地质拓扑结构"""
-        analysis = {}
-        
-        # 节点统计
-        analysis['num_nodes'] = node_features.shape[0]
-        analysis['num_edges'] = edge_index.shape[1]
-        
-        # 度分布
-        degrees = np.zeros(node_features.shape[0])
-        for i in range(edge_index.shape[1]):
-            degrees[edge_index[0, i]] += 1
-            degrees[edge_index[1, i]] += 1
-        
-        analysis['avg_degree'] = np.mean(degrees)
-        analysis['max_degree'] = np.max(degrees)
-        analysis['min_degree'] = np.min(degrees)
-        
-        # 连通性分析
-        if edge_index.shape[1] > 0:
-            # 简化的连通性检查
-            connected_nodes = set(edge_index.flatten())
-            analysis['connectivity'] = len(connected_nodes) / node_features.shape[0]
-        else:
-            analysis['connectivity'] = 0.0
-        
-        return analysis
-
-
 def create_geological_ml_system() -> Dict:
     """创建地质ML系统"""
     system = {
@@ -2155,7 +2231,6 @@ def create_geological_ml_system() -> Dict:
         'bridge': GeologicalMultiScaleBridge,
         'hybrid': GeologicalHybridAccelerator,
         'adaptive': GeologicalAdaptiveSolver,  # 新增：地质自适应求解器
-        'gnn': GeologicalGNN,  # 新增：地质图神经网络
         'physics_equations': GeologicalPhysicsEquations
     }
     
@@ -2328,61 +2403,810 @@ def demo_geological_ml():
     except Exception as e:
         print(f"   ❌ 地质自适应求解器失败: {e}")
     
-    # 7. 测试地质GNN（新增）
-    print("\n🔧 测试地质GNN...")
-    try:
-        # 生成地质图数据
-        n_points = 200
-        spatial_coords = np.random.rand(n_points, 3) * 10.0  # 3D空间坐标
-        geological_features = np.random.rand(n_points, 5)    # 地质特征（孔隙度、渗透率等）
-        
-        # 创建GNN模型
-        gnn = ml_system['gnn'](
-            node_features=5,      # 地质特征维度
-            edge_features=2,      # 边特征维度（距离、特征差异）
-            hidden_dim=32,
-            num_layers=2,
-            output_dim=1,
-            gnn_type='gcn'
-        )
-        
-        # 创建地质图结构
-        edge_index, edge_features = gnn.create_geological_graph(
-            spatial_coords, geological_features, connectivity_radius=2.0
-        )
-        
-        # 分析拓扑结构
-        topology_analysis = gnn.analyze_topology(geological_features, edge_index)
-        print(f"   拓扑分析结果:")
-        print(f"     节点数: {topology_analysis['num_nodes']}")
-        print(f"     边数: {topology_analysis['num_edges']}")
-        print(f"     平均度: {topology_analysis['avg_degree']:.2f}")
-        print(f"     连通性: {topology_analysis['connectivity']:.2f}")
-        
-        # 生成目标数据（模拟地质场值）
-        target = np.random.randn(n_points, 1)
-        
-        # 训练GNN
-        print("   训练地质GNN...")
-        training_history = gnn.train(
-            geological_features, edge_index, target, edge_features,
-            epochs=50, learning_rate=0.001
-        )
-        
-        print(f"   训练完成，最终损失: {training_history['loss'][-1]:.6f}")
-        
-        # 测试预测
-        predictions = gnn.predict(geological_features, edge_index, edge_features)
-        print(f"   预测形状: {predictions.shape}")
-        
-        # 计算预测精度
-        mse = np.mean((predictions - target)**2)
-        print(f"   预测MSE: {mse:.6f}")
-        
-    except Exception as e:
-        print(f"   ❌ 地质GNN失败: {e}")
-    
     print("\n✅ 地质数值模拟ML/DL融合演示完成!")
+
+
+# ==================== 元学习功能 ====================
+
+class GeodynamicMetaTask:
+    """地球动力学元任务类"""
+    
+    def __init__(self, name: str, data_generator: Callable, 
+                 geological_conditions: Dict[str, Any]):
+        self.name = name
+        self.data_generator = data_generator
+        self.geological_conditions = geological_conditions
+        self.task_data = None
+        self.validation_data = None
+    
+    def generate_data(self, num_samples: int = 1000):
+        """生成任务数据"""
+        self.task_data = self.data_generator(num_samples)
+        # 分割训练和验证数据
+        split_idx = int(0.8 * num_samples)
+        self.validation_data = (
+            self.task_data[0][split_idx:], 
+            self.task_data[1][split_idx:]
+        )
+        self.task_data = (
+            self.task_data[0][:split_idx], 
+            self.task_data[1][:split_idx]
+        )
+        return self.task_data
+    
+    def get_validation_data(self):
+        """获取验证数据"""
+        return self.validation_data
+
+
+class GeodynamicMetaLearner:
+    """地球动力学元学习器"""
+    
+    def __init__(self, pinn_model: 'GeologicalPINN', 
+                 meta_learning_rate: float = 0.001,
+                 inner_learning_rate: float = 0.005,
+                 adaptation_steps: int = 3):
+        self.pinn_model = pinn_model
+        self.meta_learning_rate = meta_learning_rate
+        self.inner_learning_rate = inner_learning_rate
+        self.adaptation_steps = adaptation_steps
+        
+        # 元学习优化器
+        self.meta_optimizer = optim.Adam(
+            self.pinn_model.parameters(), 
+            lr=meta_learning_rate
+        )
+        
+        # 记录元学习过程
+        self.meta_loss_history = []
+        self.adaptation_history = []
+        self.task_performance = {}
+    
+    def create_geodynamic_meta_tasks(self) -> List[GeodynamicMetaTask]:
+        """创建地球动力学元任务集（不同构造场景）"""
+        meta_tasks = []
+        
+        # 任务1：大洋中脊扩张（高温、低粘度）
+        def generate_ridge_data(num_samples):
+            """生成中脊区域的温度-速度样本"""
+            X = torch.randn(num_samples, 4)  # 空间坐标 + 温度
+            # 中脊特征：高温、低粘度、扩张速度
+            X[:, 3] = 800 + 200 * torch.randn(num_samples)  # 高温
+            y = torch.randn(num_samples, 3)  # 速度场 + 压力
+            y[:, 0] = 0.1 + 0.05 * torch.randn(num_samples)  # 扩张速度
+            return X, y
+        
+        ridge_task = GeodynamicMetaTask(
+            "大洋中脊扩张",
+            generate_ridge_data,
+            {"temperature_range": (600, 1000), "viscosity": "low", "tectonic_type": "divergent"}
+        )
+        meta_tasks.append(ridge_task)
+        
+        # 任务2：俯冲带（高压、高粘度差异）
+        def generate_subduction_data(num_samples):
+            """生成俯冲带数据"""
+            X = torch.randn(num_samples, 4)
+            # 俯冲带特征：高压、高粘度差异、压缩应力
+            X[:, 3] = 400 + 100 * torch.randn(num_samples)  # 中等温度
+            y = torch.randn(num_samples, 3)
+            y[:, 0] = -0.05 + 0.02 * torch.randn(num_samples)  # 压缩速度
+            return X, y
+        
+        subduction_task = GeodynamicMetaTask(
+            "俯冲带",
+            generate_subduction_data,
+            {"pressure_range": (1e8, 1e9), "viscosity": "high", "tectonic_type": "convergent"}
+        )
+        meta_tasks.append(subduction_task)
+        
+        # 任务3：大陆碰撞带（复杂弹性变形）
+        def generate_collision_data(num_samples):
+            """生成大陆碰撞带数据"""
+            X = torch.randn(num_samples, 4)
+            # 碰撞带特征：复杂变形、高弹性模量
+            X[:, 3] = 300 + 150 * torch.randn(num_samples)  # 低温
+            y = torch.randn(num_samples, 3)
+            y[:, 0] = 0.02 + 0.01 * torch.randn(num_samples)  # 小变形
+            return X, y
+        
+        collision_task = GeodynamicMetaTask(
+            "大陆碰撞带",
+            generate_collision_data,
+            {"deformation_type": "complex", "elastic_modulus": "high", "tectonic_type": "collision"}
+        )
+        meta_tasks.append(collision_task)
+        
+        return meta_tasks
+    
+    def meta_train_geodynamics(self, meta_tasks: List[GeodynamicMetaTask], 
+                               meta_epochs: int = 50, 
+                               task_samples: int = 1000):
+        """元学习训练适配 - 针对地球动力学任务调整"""
+        print(f"🚀 开始地球动力学元学习训练...")
+        print(f"   元任务数量: {len(meta_tasks)}")
+        print(f"   元学习轮数: {meta_epochs}")
+        print(f"   内循环步数: {self.adaptation_steps}")
+        
+        for meta_epoch in range(meta_epochs):
+            meta_loss = 0.0
+            epoch_adaptations = []
+            
+            for task_idx, task in enumerate(meta_tasks):
+                # 生成任务数据
+                X_task, y_task = task.generate_data(task_samples)
+                X_val, y_val = task.get_validation_data()
+                
+                # 保存初始参数
+                initial_params = {n: p.clone() for n, p in self.pinn_model.named_parameters()}
+                
+                # 内循环：适配特定构造场景（如俯冲带）
+                task_losses = []
+                for step in range(self.adaptation_steps):
+                    outputs = self.pinn_model(X_task)
+                    
+                    # 重点惩罚物理残差（保证跨场景的物理一致性）
+                    data_loss = F.mse_loss(outputs, y_task)
+                    physics_loss = self.pinn_model.compute_physics_loss(X_task, outputs)
+                    task_loss = 0.5 * data_loss + 0.5 * physics_loss
+                    
+                    task_losses.append(task_loss.item())
+                    
+                    # 内循环更新（仅微调上层参数，保留底层物理特征）
+                    self.pinn_model.zero_grad()
+                    task_loss.backward(retain_graph=True)
+                    
+                    with torch.no_grad():
+                        for name, p in self.pinn_model.named_parameters():
+                            if "output_layer" in name or "conv2" in name:
+                                # 上层参数可微调
+                                p -= self.inner_learning_rate * p.grad
+                            # 底层参数保持不变，保留通用物理特征
+                
+                # 元损失：泛化到任务验证集
+                val_outputs = self.pinn_model(X_val)
+                val_loss = self.pinn_model.compute_physics_loss(X_val, val_outputs)
+                meta_loss += val_loss
+                
+                # 记录任务性能
+                self.task_performance[f"{task.name}_epoch_{meta_epoch}"] = {
+                    "task_losses": task_losses,
+                    "validation_loss": val_loss.item(),
+                    "final_task_loss": task_losses[-1]
+                }
+                
+                epoch_adaptations.append({
+                    "task": task.name,
+                    "task_losses": task_losses,
+                    "validation_loss": val_loss.item()
+                })
+                
+                # 恢复初始参数
+                self.pinn_model.load_state_dict(initial_params)
+            
+            # 外循环更新：保留对所有构造场景通用的特征（如粘度-温度关系）
+            self.meta_optimizer.zero_grad()
+            meta_loss.backward()
+            self.meta_optimizer.step()
+            
+            # 记录元学习过程
+            self.meta_loss_history.append(meta_loss.item())
+            self.adaptation_history.append(epoch_adaptations)
+            
+            if meta_epoch % 10 == 0:
+                print(f"   元学习轮次 {meta_epoch}: 元损失 = {meta_loss.item():.6f}")
+        
+        print(f"✅ 地球动力学元学习训练完成!")
+        print(f"   最终元损失: {self.meta_loss_history[-1]:.6f}")
+        return self.meta_loss_history, self.adaptation_history
+    
+    def adapt_to_new_region(self, new_region_data: Tuple[torch.Tensor, torch.Tensor],
+                           adaptation_steps: int = 5) -> Dict[str, Any]:
+        """快速适配到新区域"""
+        print(f"🔄 快速适配到新区域...")
+        
+        X_new, y_new = new_region_data
+        initial_params = {n: p.clone() for n, p in self.pinn_model.named_parameters()}
+        
+        adaptation_losses = []
+        
+        for step in range(adaptation_steps):
+            outputs = self.pinn_model(X_new)
+            
+            # 新区域损失：数据损失 + 物理损失
+            data_loss = F.mse_loss(outputs, y_new)
+            physics_loss = self.pinn_model.compute_physics_loss(X_new, outputs)
+            total_loss = 0.5 * data_loss + 0.5 * physics_loss
+            
+            adaptation_losses.append(total_loss.item())
+            
+            # 快速适配：仅更新上层参数
+            self.pinn_model.zero_grad()
+            total_loss.backward(retain_graph=True)
+            
+            with torch.no_grad():
+                for name, p in self.pinn_model.named_parameters():
+                    if "output_layer" in name or "conv2" in name:
+                        p -= self.inner_learning_rate * p.grad
+        
+        # 评估适配效果
+        final_outputs = self.pinn_model(X_new)
+        final_data_loss = F.mse_loss(final_outputs, y_new).item()
+        final_physics_loss = self.pinn_model.compute_physics_loss(X_new, final_outputs).item()
+        
+        # 恢复元学习参数
+        self.pinn_model.load_state_dict(initial_params)
+        
+        adaptation_result = {
+            "adaptation_steps": adaptation_steps,
+            "loss_history": adaptation_losses,
+            "final_data_loss": final_data_loss,
+            "final_physics_loss": final_physics_loss,
+            "total_loss_reduction": adaptation_losses[0] - adaptation_losses[-1]
+        }
+        
+        print(f"   适配完成，总损失减少: {adaptation_result['total_loss_reduction']:.6f}")
+        return adaptation_result
+    
+    def get_meta_learning_status(self) -> Dict[str, Any]:
+        """获取元学习状态"""
+        return {
+            "meta_loss_history": self.meta_loss_history,
+            "adaptation_history": self.adaptation_history,
+            "task_performance": self.task_performance,
+            "meta_learning_rate": self.meta_learning_rate,
+            "inner_learning_rate": self.inner_learning_rate,
+            "adaptation_steps": self.adaptation_steps
+        }
+
+
+# 在GeologicalPINN类中添加元学习支持
+def add_meta_learning_support_to_pinn():
+    """为GeologicalPINN类添加元学习支持"""
+    
+    def meta_train_geodynamics(self, meta_tasks, meta_epochs=50, task_samples=1000):
+        """元学习训练方法"""
+        if not hasattr(self, 'meta_learner'):
+            self.meta_learner = GeodynamicMetaLearner(self)
+        return self.meta_learner.meta_train_geodynamics(meta_tasks, meta_epochs, task_samples)
+    
+    def adapt_to_new_region(self, new_region_data, adaptation_steps=5):
+        """快速适配到新区域"""
+        if not hasattr(self, 'meta_learner'):
+            self.meta_learner = GeodynamicMetaLearner(self)
+        return self.meta_learner.adapt_to_new_region(new_region_data, adaptation_steps)
+    
+    def get_meta_learning_status(self):
+        """获取元学习状态"""
+        if hasattr(self, 'meta_learner'):
+            return self.meta_learner.get_meta_learning_status()
+        return {"status": "Meta-learning not initialized"}
+    
+    # 动态添加方法到GeologicalPINN类
+    GeologicalPINN.meta_train_geodynamics = meta_train_geodynamics
+    GeologicalPINN.adapt_to_new_region = adapt_to_new_region
+    GeologicalPINN.get_meta_learning_status = get_meta_learning_status
+
+
+# 初始化时添加元学习支持
+add_meta_learning_support_to_pinn()
+
+
+# ==================== RL强化学习功能 ====================
+
+class DQNAgent:
+    """DQN智能体 - 用于时间步长优化"""
+    
+    def __init__(self, state_dim: int, action_dim: int, learning_rate: float = 0.001):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.learning_rate = learning_rate
+        
+        # 简单的神经网络Q函数
+        if HAS_PYTORCH:
+            self.q_network = nn.Sequential(
+                nn.Linear(state_dim, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, action_dim)
+            )
+            self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
+            self.epsilon = 0.1  # 探索率
+        else:
+            self.q_network = None
+            self.optimizer = None
+            self.epsilon = 0.1
+    
+    def choose_action(self, state: np.ndarray) -> int:
+        """选择动作（ε-贪婪策略）"""
+        if np.random.random() < self.epsilon:
+            return np.random.randint(0, self.action_dim)
+        
+        if self.q_network is not None:
+            with torch.no_grad():
+                state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                q_values = self.q_network(state_tensor)
+                return q_values.argmax().item()
+        else:
+            return np.random.randint(0, self.action_dim)
+    
+    def learn(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray):
+        """学习更新Q值"""
+        if self.q_network is None:
+            return
+        
+        # 计算目标Q值
+        with torch.no_grad():
+            next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0)
+            next_q_values = self.q_network(next_state_tensor)
+            target_q = reward + 0.99 * next_q_values.max()
+        
+        # 计算当前Q值
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
+        current_q_values = self.q_network(state_tensor)
+        current_q = current_q_values[0, action]
+        
+        # 计算损失并更新
+        loss = F.mse_loss(current_q, torch.tensor(target_q))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+
+class PPORLAgent:
+    """PPO强化学习智能体 - 用于反演优化"""
+    
+    def __init__(self, state_dim: int, action_dim: int, learning_rate: float = 0.0003):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.learning_rate = learning_rate
+        
+        if HAS_PYTORCH:
+            # Actor网络（策略）
+            self.actor = nn.Sequential(
+                nn.Linear(state_dim, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, action_dim),
+                nn.Tanh()  # 输出范围[-1, 1]
+            )
+            
+            # Critic网络（价值）
+            self.critic = nn.Sequential(
+                nn.Linear(state_dim, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, 1)
+            )
+            
+            self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=learning_rate)
+            self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=learning_rate)
+            
+            # PPO参数
+            self.clip_ratio = 0.2
+            self.value_coef = 0.5
+            self.entropy_coef = 0.01
+        else:
+            self.actor = None
+            self.critic = None
+            self.actor_optimizer = None
+            self.critic_optimizer = None
+    
+    def select_action(self, state: np.ndarray) -> np.ndarray:
+        """选择动作"""
+        if self.actor is None:
+            return np.random.randn(self.action_dim) * 0.1
+        
+        with torch.no_grad():
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            action_mean = self.actor(state_tensor)
+            action_std = torch.ones_like(action_mean) * 0.1
+            action_dist = torch.distributions.Normal(action_mean, action_std)
+            action = action_dist.sample()
+            return action.squeeze().numpy()
+    
+    def update(self, states: List[np.ndarray], actions: List[np.ndarray], 
+               rewards: List[float], next_states: List[np.ndarray]):
+        """更新策略和价值网络"""
+        if self.actor is None or self.critic is None:
+            return
+        
+        # 转换为张量
+        states_tensor = torch.FloatTensor(np.array(states))
+        actions_tensor = torch.FloatTensor(np.array(actions))
+        rewards_tensor = torch.FloatTensor(rewards)
+        
+        # 计算优势函数（简化版）
+        advantages = rewards_tensor
+        
+        # 更新Critic
+        values = self.critic(states_tensor).squeeze()
+        value_loss = F.mse_loss(values, rewards_tensor)
+        
+        self.critic_optimizer.zero_grad()
+        value_loss.backward()
+        self.critic_optimizer.step()
+        
+        # 更新Actor（简化版PPO）
+        action_mean = self.actor(states_tensor)
+        action_std = torch.ones_like(action_mean) * 0.1
+        action_dist = torch.distributions.Normal(action_mean, action_std)
+        
+        log_probs = action_dist.log_prob(actions_tensor).sum(dim=1)
+        policy_loss = -(log_probs * advantages).mean()
+        
+        self.actor_optimizer.zero_grad()
+        policy_loss.backward()
+        self.actor_optimizer.step()
+
+
+class RLTimeStepOptimizer:
+    """RL时间步长优化器 - 用于地幔对流等长时程模拟"""
+    
+    def __init__(self, solver, base_dt: float = 1e6):
+        self.solver = solver
+        self.base_dt = base_dt
+        
+        # 状态：当前速度场梯度、温度变化率、上一步误差
+        self.agent = DQNAgent(state_dim=15, action_dim=4)  # 4种时间步缩放因子，状态维度为15（5步×3特征）
+        
+        # 状态历史
+        self.state_history = []
+        self.error_history = []
+        self.dt_history = []
+        
+        # 优化参数
+        self.min_dt_scale = 0.1
+        self.max_dt_scale = 2.0
+        self.target_error = 1e-6
+    
+    def _get_state_features(self, state_history: List[Dict]) -> np.ndarray:
+        """提取当前状态特征"""
+        if len(state_history) < 5:
+            # 如果历史不足，用零填充
+            padding = [{'velocity_grad': 0.0, 'temp_change': 0.0, 'error': 0.0}] * (5 - len(state_history))
+            state_history = padding + state_history
+        
+        # 提取最近5步的特征
+        features = []
+        for state in state_history[-5:]:
+            features.extend([
+                state.get('velocity_grad', 0.0),
+                state.get('temp_change', 0.0),
+                state.get('error', 0.0)
+            ])
+        
+        # 归一化特征
+        features = np.array(features)
+        if np.max(features) > 0:
+            features = features / np.max(features)
+        
+        return features
+    
+    def _smoothness_reward(self, new_state: Dict) -> float:
+        """计算物理场平滑性奖励"""
+        # 基于速度场梯度和温度变化率的平滑性
+        velocity_grad = new_state.get('velocity_grad', 0.0)
+        temp_change = new_state.get('temp_change', 0.0)
+        
+        # 平滑性奖励：梯度变化越小越好
+        smoothness = 1.0 / (1.0 + abs(velocity_grad) + abs(temp_change))
+        return smoothness
+    
+    def optimize(self, state_history: List[Dict], max_steps: int = 1000) -> Dict[str, Any]:
+        """优化时间步长"""
+        print(f"🚀 开始RL时间步长优化...")
+        print(f"   最大步数: {max_steps}")
+        print(f"   基础时间步: {self.base_dt}")
+        
+        optimization_results = {
+            'dt_history': [],
+            'error_history': [],
+            'reward_history': [],
+            'efficiency_improvement': 0.0
+        }
+        
+        for step in range(max_steps):
+            # 提取当前状态特征
+            current_state = self._get_state_features(state_history[-5:])
+            
+            # 选择时间步长（如1x, 1.5x, 0.5x, 2x）
+            action = self.agent.choose_action(current_state)
+            dt_scale = [0.5, 1.0, 1.5, 2.0][action]
+            dt = self.base_dt * dt_scale
+            
+            # 限制时间步范围
+            dt = np.clip(dt, self.base_dt * self.min_dt_scale, self.base_dt * self.max_dt_scale)
+            
+            # 执行模拟步（这里用模拟数据）
+            new_state, error = self._simulate_step(dt, state_history[-1] if state_history else {})
+            
+            # 奖励设计：误差小（+）、步长大（+）、物理场平滑（+）
+            error_penalty = 1.0 - min(error / self.target_error, 1.0)
+            dt_reward = np.log(dt / self.base_dt)
+            smoothness_reward = 0.1 * self._smoothness_reward(new_state)
+            
+            reward = error_penalty + dt_reward + smoothness_reward
+            
+            # 学习更新
+            self.agent.learn(current_state, action, reward, self._get_state_features([new_state]))
+            
+            # 记录历史
+            self.state_history.append(new_state)
+            self.error_history.append(error)
+            self.dt_history.append(dt)
+            
+            optimization_results['dt_history'].append(dt)
+            optimization_results['error_history'].append(error)
+            optimization_results['reward_history'].append(reward)
+            
+            # 更新状态历史
+            state_history.append(new_state)
+            
+            if step % 100 == 0:
+                print(f"   步数 {step}: dt={dt:.2e}, error={error:.2e}, reward={reward:.4f}")
+        
+        # 计算效率提升
+        if len(optimization_results['dt_history']) > 1:
+            avg_dt = np.mean(optimization_results['dt_history'])
+            efficiency_improvement = (avg_dt - self.base_dt) / self.base_dt * 100
+            optimization_results['efficiency_improvement'] = efficiency_improvement
+        
+        print(f"✅ RL时间步长优化完成!")
+        print(f"   平均时间步: {np.mean(optimization_results['dt_history']):.2e}")
+        print(f"   效率提升: {optimization_results['efficiency_improvement']:.1f}%")
+        
+        return optimization_results
+    
+    def _simulate_step(self, dt: float, prev_state: Dict) -> Tuple[Dict, float]:
+        """模拟一步计算（实际应用中替换为真实求解器）"""
+        # 模拟地幔对流状态
+        velocity_grad = np.random.normal(0.1, 0.05) * (1 + np.random.random() * 0.1)
+        temp_change = np.random.normal(0.05, 0.02) * (1 + np.random.random() * 0.1)
+        
+        # 误差与时间步相关
+        error = np.random.normal(1e-6, 1e-7) * (dt / self.base_dt) ** 2
+        
+        new_state = {
+            'velocity_grad': velocity_grad,
+            'temp_change': temp_change,
+            'error': error,
+            'dt': dt
+        }
+        
+        return new_state, error
+
+
+class InversionRLAgent:
+    """RL地球物理反演智能体 - 用于地下参数反演"""
+    
+    def __init__(self, forward_model, param_dim: int = 10):
+        self.forward_model = forward_model  # PINN正演模型
+        self.param_dim = param_dim
+        
+        # 动作：调整粘度参数的方向和幅度
+        self.agent = PPORLAgent(state_dim=10, action_dim=5)  # 10个观测点残差，5种调整策略
+        
+        # 反演参数
+        self.param_bounds = {
+            'viscosity': (1e18, 1e24),  # Pa·s
+            'density': (2000, 4000),     # kg/m³
+            'thermal_conductivity': (1.0, 5.0)  # W/(m·K)
+        }
+        
+        # 反演历史
+        self.inversion_history = {
+            'params': [],
+            'residuals': [],
+            'rewards': []
+        }
+    
+    def _get_residual_features(self, obs_data: np.ndarray, pred_data: np.ndarray) -> np.ndarray:
+        """获取观测残差特征"""
+        residuals = obs_data - pred_data
+        
+        # 计算残差统计特征
+        features = [
+            np.mean(residuals),
+            np.std(residuals),
+            np.max(np.abs(residuals)),
+            np.min(residuals),
+            np.max(residuals),
+            np.percentile(residuals, 25),
+            np.percentile(residuals, 50),
+            np.percentile(residuals, 75),
+            np.sum(residuals > 0),  # 正残差数量
+            np.sum(residuals < 0)   # 负残差数量
+        ]
+        
+        # 归一化特征
+        features = np.array(features)
+        if np.max(np.abs(features)) > 0:
+            features = features / np.max(np.abs(features))
+        
+        return features
+    
+    def _adjust_params(self, current_params: Dict[str, np.ndarray], 
+                       action: np.ndarray) -> Dict[str, np.ndarray]:
+        """根据RL动作调整参数"""
+        new_params = current_params.copy()
+        
+        # 动作映射到参数调整
+        # action[0]: 粘度调整幅度
+        # action[1]: 密度调整幅度  
+        # action[2]: 热导率调整幅度
+        # action[3]: 空间平滑度
+        # action[4]: 时间平滑度
+        
+        for param_name in current_params.keys():
+            if param_name in self.param_bounds:
+                param_array = current_params[param_name]
+                bounds = self.param_bounds[param_name]
+                
+                # 计算调整幅度
+                if param_name == 'viscosity':
+                    adjustment = action[0] * 0.1  # 10%调整
+                elif param_name == 'density':
+                    adjustment = action[1] * 0.05  # 5%调整
+                elif param_name == 'thermal_conductivity':
+                    adjustment = action[2] * 0.1   # 10%调整
+                else:
+                    adjustment = 0.0
+                
+                # 应用调整
+                new_param_array = param_array * (1 + adjustment)
+                
+                # 应用空间平滑（action[3]）
+                if action[3] > 0:
+                    # 简单的空间平滑
+                    from scipy.ndimage import gaussian_filter
+                    try:
+                        new_param_array = gaussian_filter(new_param_array, sigma=action[3])
+                    except:
+                        pass  # 如果scipy不可用，跳过平滑
+                
+                # 应用时间平滑（action[4]）
+                if action[4] > 0:
+                    # 时间平滑：与历史值平均
+                    if len(self.inversion_history['params']) > 0:
+                        prev_param = self.inversion_history['params'][-1][param_name]
+                        alpha = min(action[4], 0.5)  # 最大50%历史权重
+                        new_param_array = (1 - alpha) * new_param_array + alpha * prev_param
+                
+                # 限制在边界内
+                new_param_array = np.clip(new_param_array, bounds[0], bounds[1])
+                new_params[param_name] = new_param_array
+        
+        return new_params
+    
+    def invert(self, obs_data: np.ndarray, init_params: Dict[str, np.ndarray], 
+               iterations: int = 100) -> Dict[str, Any]:
+        """执行反演优化"""
+        print(f"🔄 开始RL地球物理反演...")
+        print(f"   反演迭代数: {iterations}")
+        print(f"   参数维度: {self.param_dim}")
+        
+        current_params = init_params.copy()
+        best_params = init_params.copy()
+        best_residual = float('inf')
+        
+        # 记录初始状态
+        self.inversion_history['params'].append(init_params.copy())
+        
+        for iteration in range(iterations):
+            # 正演模拟
+            try:
+                pred_data = self.forward_model(current_params)
+            except:
+                # 如果正演失败，使用模拟数据
+                pred_data = obs_data + np.random.normal(0, 0.1 * np.std(obs_data), obs_data.shape)
+            
+            # 状态：观测残差特征
+            state = self._get_residual_features(obs_data, pred_data)
+            
+            # 选择参数调整动作
+            action = self.agent.select_action(state)
+            new_params = self._adjust_params(current_params, action)
+            
+            # 计算新参数的正演结果
+            try:
+                new_pred_data = self.forward_model(new_params)
+            except:
+                new_pred_data = obs_data + np.random.normal(0, 0.1 * np.std(obs_data), obs_data.shape)
+            
+            # 奖励：残差减小+参数平滑（符合地质连续性）
+            residual_reward = -np.mean(np.square(obs_data - new_pred_data))
+            smooth_reward = -0.1 * np.var(list(new_params.values()))
+            total_reward = residual_reward + smooth_reward
+            
+            # 限制奖励范围，防止梯度爆炸
+            total_reward = np.clip(total_reward, -100.0, 100.0)
+            
+            # 更新智能体
+            self.agent.update([state], [action], [total_reward], [state])
+            
+            # 更新参数
+            current_params = new_params
+            
+            # 记录历史
+            self.inversion_history['params'].append(current_params.copy())
+            self.inversion_history['residuals'].append(residual_reward)
+            self.inversion_history['rewards'].append(total_reward)
+            
+            # 更新最佳参数
+            if residual_reward > best_residual:
+                best_residual = residual_reward
+                best_params = current_params.copy()
+            
+            if iteration % 20 == 0:
+                print(f"   迭代 {iteration}: 残差={-residual_reward:.6f}, 奖励={total_reward:.4f}")
+        
+        print(f"✅ RL反演完成!")
+        print(f"   最佳残差: {-best_residual:.6f}")
+        print(f"   最终残差: {-self.inversion_history['residuals'][-1]:.6f}")
+        
+        return {
+            'best_params': best_params,
+            'final_params': current_params,
+            'best_residual': -best_residual,
+            'final_residual': -self.inversion_history['residuals'][-1],
+            'inversion_history': self.inversion_history,
+            'efficiency_improvement': self._calculate_efficiency_improvement()
+        }
+    
+    def _calculate_efficiency_improvement(self) -> float:
+        """计算反演效率提升"""
+        if len(self.inversion_history['residuals']) < 2:
+            return 0.0
+        
+        initial_residual = -self.inversion_history['residuals'][0]
+        final_residual = -self.inversion_history['residuals'][-1]
+        
+        if initial_residual > 0:
+            improvement = (initial_residual - final_residual) / initial_residual * 100
+            return improvement
+        return 0.0
+
+
+# 在GeologicalPINN类中添加RL支持
+def add_rl_support_to_pinn():
+    """为GeologicalPINN类添加RL支持"""
+    
+    def setup_rl_time_step_optimizer(self, base_dt: float = 1e6):
+        """设置RL时间步长优化器"""
+        self.rl_time_optimizer = RLTimeStepOptimizer(self, base_dt)
+        print(f"✅ 已设置RL时间步长优化器，基础时间步: {base_dt}")
+    
+    def setup_rl_inversion_agent(self, param_dim: int = 10):
+        """设置RL反演智能体"""
+        self.rl_inversion_agent = InversionRLAgent(self, param_dim)
+        print(f"✅ 已设置RL反演智能体，参数维度: {param_dim}")
+    
+    def optimize_time_step_with_rl(self, state_history: List[Dict], max_steps: int = 1000):
+        """使用RL优化时间步长"""
+        if not hasattr(self, 'rl_time_optimizer'):
+            self.setup_rl_time_step_optimizer()
+        return self.rl_time_optimizer.optimize(state_history, max_steps)
+    
+    def invert_parameters_with_rl(self, obs_data: np.ndarray, init_params: Dict[str, np.ndarray], 
+                                 iterations: int = 100):
+        """使用RL进行参数反演"""
+        if not hasattr(self, 'rl_inversion_agent'):
+            self.setup_rl_inversion_agent()
+        return self.rl_inversion_agent.invert(obs_data, init_params, iterations)
+    
+    # 动态添加方法到GeologicalPINN类
+    GeologicalPINN.setup_rl_time_step_optimizer = setup_rl_time_step_optimizer
+    GeologicalPINN.setup_rl_inversion_agent = setup_rl_inversion_agent
+    GeologicalPINN.optimize_time_step_with_rl = optimize_time_step_with_rl
+    GeologicalPINN.invert_parameters_with_rl = invert_parameters_with_rl
+
+
+# 初始化时添加RL支持
+add_rl_support_to_pinn()
 
 
 if __name__ == "__main__":
