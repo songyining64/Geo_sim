@@ -748,7 +748,7 @@ class GeologicalPINN(BaseSolver, nn.Module):
                 faults: List[Tuple] = None, plate_boundaries: List[Tuple] = None,
                 geological_features: np.ndarray = None) -> torch.Tensor:
         """
-        前向传播 - 支持GNN增强
+        前向传播 - 支持GNN增强和地质特征注意力机制
         
         Args:
             x: 输入特征
@@ -762,6 +762,10 @@ class GeologicalPINN(BaseSolver, nn.Module):
         Returns:
             模型输出
         """
+        # 地质特征注意力机制
+        if geological_features is not None:
+            x = self._apply_geological_attention(x, geological_features)
+        
         # 检查是否启用GNN增强
         if hasattr(self, 'gnn_integrator') and self.gnn_integrator is not None:
             if mesh_data is not None:
@@ -786,6 +790,37 @@ class GeologicalPINN(BaseSolver, nn.Module):
                 x = F.relu(x)
                 if self.dropout_rate > 0:
                     x = F.dropout(x, p=self.dropout_rate, training=self.training)
+        
+        return x
+    
+    def _apply_geological_attention(self, x: torch.Tensor, geological_features: np.ndarray) -> torch.Tensor:
+        """应用地质特征注意力机制"""
+        if geological_features is None:
+            return x
+        
+        # 转换为tensor
+        if not isinstance(geological_features, torch.Tensor):
+            geo_tensor = torch.FloatTensor(geological_features).to(x.device)
+        else:
+            geo_tensor = geological_features
+        
+        # 初始化注意力层（如果不存在）
+        if not hasattr(self, 'geo_attention_layer'):
+            geo_feat_dim = geo_tensor.shape[1]
+            self.geo_attention_layer = nn.Sequential(
+                nn.Linear(geo_feat_dim, geo_feat_dim // 2),
+                nn.ReLU(),
+                nn.Linear(geo_feat_dim // 2, 1)
+            ).to(x.device)
+        
+        # 计算注意力权重
+        attention_weights = F.softmax(self.geo_attention_layer(geo_tensor), dim=1)
+        
+        # 加权地质特征
+        weighted_geo = torch.sum(attention_weights * geo_tensor, dim=1, keepdim=True)
+        
+        # 融合输入特征
+        x = torch.cat([x, weighted_geo], dim=1)
         
         return x
     
@@ -869,58 +904,104 @@ class GeologicalPINN(BaseSolver, nn.Module):
         return status
     
     def compute_physics_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """计算地质物理约束损失 - 支持地球动力学多场耦合适配"""
+        """计算地质物理约束损失 - 增强多物理场耦合支持"""
         if not self.physics_equations:
             return torch.tensor(0.0, device=self.device)
         
         total_loss = torch.tensor(0.0, device=self.device)
+        individual_losses = {}
         
-        # 针对不同物理场分配权重
-        for equation in self.physics_equations:
-            # 计算物理方程的残差
-            residual = equation(x, y, self.geological_config)
-            
-            # 根据方程类型分配权重
-            equation_name = equation.__name__ if hasattr(equation, '__name__') else str(equation)
-            
-            if "stokes_equation" in equation_name:
-                # 地幔流动权重更高（核心过程）
-                weight = 100.0
-            elif "mantle_convection_equation" in equation_name:
-                # 地幔对流（综合方程）
-                weight = 80.0
-            elif "fault_slip_equation" in equation_name:
-                # 断层过程权重
-                weight = 50.0
-            elif "plate_tectonics_equation" in equation_name:
-                # 板块构造（综合方程）
-                weight = 60.0
-            elif "heat_conduction_equation" in equation_name:
-                # 热传导次之
-                weight = 10.0
-            elif "elastic_equilibrium_equation" in equation_name:
-                # 弹性力学
-                weight = 20.0
-            elif "chemical_transport_equation" in equation_name:
-                # 化学输运
-                weight = 15.0
-            elif "darcy_equation" in equation_name:
-                # 达西流动
-                weight = 8.0
-            else:
-                # 其他方程默认权重
-                weight = 1.0
-            
-            # 应用权重并累加到总损失
-            weighted_loss = weight * torch.mean(residual ** 2)
-            total_loss += weighted_loss
-            
-            # 记录各方程的损失（用于监控）
-            if not hasattr(self, 'equation_losses'):
-                self.equation_losses = {}
-            self.equation_losses[equation_name] = weighted_loss.item()
+        # 动态权重调整：基于当前预测误差
+        if not hasattr(self, 'dynamic_weights'):
+            self.dynamic_weights = torch.ones(len(self.physics_equations), device=self.device)
+        
+        # 计算各方程的残差和损失
+        equation_residuals = []
+        for i, equation in enumerate(self.physics_equations):
+            try:
+                residual = equation(x, y, self.geological_config)
+                equation_residuals.append(residual)
+                
+                # 基础权重（基于方程重要性）
+                base_weight = self._get_base_equation_weight(equation)
+                
+                # 动态权重：误差大的方程权重更高
+                residual_magnitude = torch.mean(torch.abs(residual))
+                dynamic_weight = self.dynamic_weights[i] * base_weight * (1 + residual_magnitude)
+                
+                # 加权损失
+                equation_loss = dynamic_weight * torch.mean(residual ** 2)
+                total_loss += equation_loss
+                
+                # 记录损失信息
+                equation_name = equation.__name__ if hasattr(equation, '__name__') else f"equation_{i}"
+                individual_losses[equation_name] = {
+                    "residual": residual.detach().cpu().numpy(),
+                    "loss": equation_loss.item(),
+                    "base_weight": base_weight,
+                    "dynamic_weight": dynamic_weight.item(),
+                    "residual_magnitude": residual_magnitude.item()
+                }
+                
+            except Exception as e:
+                print(f"警告：物理方程 {i} 计算失败: {e}")
+                continue
+        
+        # 更新动态权重（基于残差相对大小）
+        if equation_residuals:
+            self._update_dynamic_weights(equation_residuals)
+        
+        # 存储损失历史
+        if not hasattr(self, 'physics_loss_history'):
+            self.physics_loss_history = []
+        
+        self.physics_loss_history.append({
+            'total_loss': total_loss.item(),
+            'individual_losses': individual_losses,
+            'dynamic_weights': self.dynamic_weights.detach().cpu().numpy(),
+            'timestamp': time.time()
+        })
+        
+        # 更新方程损失记录
+        self.equation_losses = {name: info["loss"] for name, info in individual_losses.items()}
         
         return total_loss
+    
+    def _get_base_equation_weight(self, equation: Callable) -> float:
+        """获取方程的基础权重"""
+        if hasattr(equation, '__name__'):
+            eq_name = equation.__name__
+            weight_map = {
+                'stokes_equation': 100.0,      # 地幔流动权重最高
+                'fault_slip_equation': 50.0,   # 断层过程权重
+                'mantle_convection_equation': 80.0,  # 地幔对流权重
+                'plate_tectonics_equation': 60.0,    # 板块构造权重
+                'chemical_transport_equation': 15.0, # 化学输运权重
+                'heat_conduction_equation': 10.0,    # 热传导权重
+                'elastic_equilibrium_equation': 20.0, # 弹性平衡权重
+                'darcy_equation': 8.0,         # 达西流权重
+            }
+            return weight_map.get(eq_name, 1.0)
+        return 1.0
+    
+    def _update_dynamic_weights(self, equation_residuals: List[torch.Tensor]):
+        """更新动态权重 - 基于残差相对大小"""
+        if not equation_residuals:
+            return
+        
+        # 计算各方程残差的相对大小
+        residual_magnitudes = [torch.mean(torch.abs(res)) for res in equation_residuals]
+        max_magnitude = max(residual_magnitudes)
+        
+        if max_magnitude > 0:
+            # 归一化残差大小
+            normalized_magnitudes = [mag / max_magnitude for mag in residual_magnitudes]
+            
+            # 更新动态权重：残差大的权重增加
+            for i, norm_mag in enumerate(normalized_magnitudes):
+                if i < len(self.dynamic_weights):
+                    # 指数衰减更新
+                    self.dynamic_weights[i] = 0.9 * self.dynamic_weights[i] + 0.1 * (1 + norm_mag)
     
     def compute_boundary_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """计算边界条件损失"""
@@ -2406,50 +2487,92 @@ def demo_geological_ml():
     print("\n✅ 地质数值模拟ML/DL融合演示完成!")
 
 
+# ==================== 统一ML模块接口 ====================
+
+class MLModule(ABC):
+    """ML模块抽象基类 - 统一接口规范"""
+    
+    @abstractmethod
+    def train(self, data: Any) -> Dict[str, Any]:
+        """训练模型"""
+        pass
+    
+    @abstractmethod
+    def predict(self, x: Any) -> Any:
+        """模型预测"""
+        pass
+    
+    @abstractmethod
+    def adapt(self, new_data: Any) -> Dict[str, Any]:
+        """适配新数据/场景"""
+        pass
+    
+    @abstractmethod
+    def get_performance_metrics(self) -> Dict[str, float]:
+        """获取性能指标"""
+        pass
+
+
 # ==================== 元学习功能 ====================
 
 class GeodynamicMetaTask:
-    """地球动力学元任务类"""
+    """地球动力学元任务类 - 支持多场景任务生成"""
     
     def __init__(self, name: str, data_generator: Callable, 
-                 geological_conditions: Dict[str, Any]):
+                 geological_conditions: Dict[str, Any],
+                 task_type: str = "regression"):
         self.name = name
         self.data_generator = data_generator
         self.geological_conditions = geological_conditions
+        self.task_type = task_type
         self.task_data = None
         self.validation_data = None
+        self.test_data = None
     
-    def generate_data(self, num_samples: int = 1000):
-        """生成任务数据"""
+    def generate_data(self, num_samples: int = 1000, split_ratio: Tuple[float, float, float] = (0.7, 0.15, 0.15)):
+        """生成任务数据 - 支持训练/验证/测试三分割"""
         self.task_data = self.data_generator(num_samples)
-        # 分割训练和验证数据
-        split_idx = int(0.8 * num_samples)
-        self.validation_data = (
-            self.task_data[0][split_idx:], 
-            self.task_data[1][split_idx:]
-        )
+        
+        # 三分割：训练集、验证集、测试集
+        train_idx = int(split_ratio[0] * num_samples)
+        val_idx = int((split_ratio[0] + split_ratio[1]) * num_samples)
+        
         self.task_data = (
-            self.task_data[0][:split_idx], 
-            self.task_data[1][:split_idx]
+            self.task_data[0][:train_idx], 
+            self.task_data[1][:train_idx]
+        )
+        self.validation_data = (
+            self.task_data[0][train_idx:val_idx], 
+            self.task_data[1][train_idx:val_idx]
+        )
+        self.test_data = (
+            self.task_data[0][val_idx:], 
+            self.task_data[1][val_idx:]
         )
         return self.task_data
     
     def get_validation_data(self):
         """获取验证数据"""
         return self.validation_data
+    
+    def get_test_data(self):
+        """获取测试数据"""
+        return self.test_data
 
 
-class GeodynamicMetaLearner:
-    """地球动力学元学习器"""
+class GeodynamicMetaLearner(MLModule):
+    """地球动力学元学习器 - 实现MAML算法"""
     
     def __init__(self, pinn_model: 'GeologicalPINN', 
                  meta_learning_rate: float = 0.001,
                  inner_learning_rate: float = 0.005,
-                 adaptation_steps: int = 3):
+                 adaptation_steps: int = 3,
+                 first_order: bool = False):
         self.pinn_model = pinn_model
         self.meta_learning_rate = meta_learning_rate
         self.inner_learning_rate = inner_learning_rate
         self.adaptation_steps = adaptation_steps
+        self.first_order = first_order  # 一阶近似（Reptile算法）
         
         # 元学习优化器
         self.meta_optimizer = optim.Adam(
@@ -2461,6 +2584,12 @@ class GeodynamicMetaLearner:
         self.meta_loss_history = []
         self.adaptation_history = []
         self.task_performance = {}
+        self.meta_epochs = 0
+        
+        # 性能监控
+        self.training_time = 0.0
+        self.adaptation_time = 0.0
+        self.meta_gradients = []
     
     def create_geodynamic_meta_tasks(self) -> List[GeodynamicMetaTask]:
         """创建地球动力学元任务集（不同构造场景）"""
@@ -2522,15 +2651,19 @@ class GeodynamicMetaLearner:
     def meta_train_geodynamics(self, meta_tasks: List[GeodynamicMetaTask], 
                                meta_epochs: int = 50, 
                                task_samples: int = 1000):
-        """元学习训练适配 - 针对地球动力学任务调整"""
+        """元学习训练适配 - 实现MAML算法"""
         print(f"🚀 开始地球动力学元学习训练...")
         print(f"   元任务数量: {len(meta_tasks)}")
         print(f"   元学习轮数: {meta_epochs}")
         print(f"   内循环步数: {self.adaptation_steps}")
+        print(f"   算法类型: {'Reptile' if self.first_order else 'MAML'}")
+        
+        start_time = time.time()
         
         for meta_epoch in range(meta_epochs):
             meta_loss = 0.0
             epoch_adaptations = []
+            task_gradients = []
             
             for task_idx, task in enumerate(meta_tasks):
                 # 生成任务数据
@@ -2540,28 +2673,40 @@ class GeodynamicMetaLearner:
                 # 保存初始参数
                 initial_params = {n: p.clone() for n, p in self.pinn_model.named_parameters()}
                 
-                # 内循环：适配特定构造场景（如俯冲带）
+                # 内循环：快速适配特定构造场景
                 task_losses = []
+                adapted_params = initial_params.copy()
+                
                 for step in range(self.adaptation_steps):
                     outputs = self.pinn_model(X_task)
                     
-                    # 重点惩罚物理残差（保证跨场景的物理一致性）
+                    # 计算任务损失：数据损失 + 物理损失
                     data_loss = F.mse_loss(outputs, y_task)
                     physics_loss = self.pinn_model.compute_physics_loss(X_task, outputs)
                     task_loss = 0.5 * data_loss + 0.5 * physics_loss
                     
                     task_losses.append(task_loss.item())
                     
-                    # 内循环更新（仅微调上层参数，保留底层物理特征）
+                    # 内循环更新
                     self.pinn_model.zero_grad()
                     task_loss.backward(retain_graph=True)
                     
+                    # 记录梯度用于元更新
+                    if step == self.adaptation_steps - 1:  # 最后一步的梯度
+                        task_gradients.append({
+                            name: p.grad.clone() if p.grad is not None else None
+                            for name, p in self.pinn_model.named_parameters()
+                        })
+                    
+                    # 参数更新
                     with torch.no_grad():
                         for name, p in self.pinn_model.named_parameters():
-                            if "output_layer" in name or "conv2" in name:
-                                # 上层参数可微调
-                                p -= self.inner_learning_rate * p.grad
-                            # 底层参数保持不变，保留通用物理特征
+                            if p.grad is not None:
+                                # 上层参数可微调，底层参数保持较小更新
+                                if "output_layer" in name or "conv2" in name:
+                                    p -= self.inner_learning_rate * p.grad
+                                else:
+                                    p -= 0.1 * self.inner_learning_rate * p.grad
                 
                 # 元损失：泛化到任务验证集
                 val_outputs = self.pinn_model(X_val)
@@ -2572,7 +2717,8 @@ class GeodynamicMetaLearner:
                 self.task_performance[f"{task.name}_epoch_{meta_epoch}"] = {
                     "task_losses": task_losses,
                     "validation_loss": val_loss.item(),
-                    "final_task_loss": task_losses[-1]
+                    "final_task_loss": task_losses[-1],
+                    "adaptation_success": task_losses[-1] < task_losses[0]
                 }
                 
                 epoch_adaptations.append({
@@ -2584,21 +2730,50 @@ class GeodynamicMetaLearner:
                 # 恢复初始参数
                 self.pinn_model.load_state_dict(initial_params)
             
-            # 外循环更新：保留对所有构造场景通用的特征（如粘度-温度关系）
-            self.meta_optimizer.zero_grad()
-            meta_loss.backward()
-            self.meta_optimizer.step()
+            # 外循环更新：MAML元梯度更新
+            if not self.first_order:
+                # 标准MAML：使用二阶梯度
+                self.meta_optimizer.zero_grad()
+                meta_loss.backward()
+                self.meta_optimizer.step()
+            else:
+                # Reptile：直接参数更新
+                self._reptile_update(task_gradients)
             
             # 记录元学习过程
             self.meta_loss_history.append(meta_loss.item())
             self.adaptation_history.append(epoch_adaptations)
+            self.meta_epochs += 1
             
             if meta_epoch % 10 == 0:
                 print(f"   元学习轮次 {meta_epoch}: 元损失 = {meta_loss.item():.6f}")
         
+        self.training_time = time.time() - start_time
         print(f"✅ 地球动力学元学习训练完成!")
         print(f"   最终元损失: {self.meta_loss_history[-1]:.6f}")
+        print(f"   总训练时间: {self.training_time:.2f} 秒")
         return self.meta_loss_history, self.adaptation_history
+    
+    def _reptile_update(self, task_gradients: List[Dict[str, torch.Tensor]]):
+        """Reptile算法的一阶参数更新"""
+        if not task_gradients:
+            return
+        
+        # 计算平均梯度
+        avg_gradients = {}
+        for name in self.pinn_model.named_parameters():
+            if name[1].grad is not None:
+                avg_gradients[name[0]] = torch.zeros_like(name[1].grad)
+        
+        for task_grad in task_gradients:
+            for name, grad in task_grad.items():
+                if grad is not None and name in avg_gradients:
+                    avg_gradients[name] += grad
+        
+        # 应用平均梯度
+        for name, param in self.pinn_model.named_parameters():
+            if name in avg_gradients:
+                param.data -= self.meta_learning_rate * avg_gradients[name] / len(task_gradients)
     
     def adapt_to_new_region(self, new_region_data: Tuple[torch.Tensor, torch.Tensor],
                            adaptation_steps: int = 5) -> Dict[str, Any]:
@@ -2648,6 +2823,43 @@ class GeodynamicMetaLearner:
         print(f"   适配完成，总损失减少: {adaptation_result['total_loss_reduction']:.6f}")
         return adaptation_result
     
+    # 实现MLModule接口
+    def train(self, data: Any) -> Dict[str, Any]:
+        """训练元学习器"""
+        if isinstance(data, list) and all(isinstance(item, GeodynamicMetaTask) for item in data):
+            return self.meta_train_geodynamics(data)
+        else:
+            raise ValueError("训练数据必须是GeodynamicMetaTask列表")
+    
+    def predict(self, x: Any) -> Any:
+        """使用元学习后的模型进行预测"""
+        return self.pinn_model(x)
+    
+    def adapt(self, new_data: Any) -> Dict[str, Any]:
+        """快速适配到新场景"""
+        if isinstance(new_data, tuple) and len(new_data) == 2:
+            return self.adapt_to_new_region(new_data)
+        else:
+            raise ValueError("适配数据必须是(X, y)元组")
+    
+    def get_performance_metrics(self) -> Dict[str, float]:
+        """获取性能指标"""
+        if not self.meta_loss_history:
+            return {"status": "Not trained yet"}
+        
+        return {
+            "meta_loss": self.meta_loss_history[-1],
+            "best_meta_loss": min(self.meta_loss_history),
+            "meta_epochs": self.meta_epochs,
+            "training_time": self.training_time,
+            "adaptation_time": self.adaptation_time,
+            "success_rate": np.mean([
+                perf["adaptation_success"] 
+                for task_perfs in self.task_performance.values() 
+                for perf in [task_perfs] if "adaptation_success" in task_perfs
+            ]) if self.task_performance else 0.0
+        }
+    
     def get_meta_learning_status(self) -> Dict[str, Any]:
         """获取元学习状态"""
         return {
@@ -2656,7 +2868,8 @@ class GeodynamicMetaLearner:
             "task_performance": self.task_performance,
             "meta_learning_rate": self.meta_learning_rate,
             "inner_learning_rate": self.inner_learning_rate,
-            "adaptation_steps": self.adaptation_steps
+            "adaptation_steps": self.adaptation_steps,
+            "performance_metrics": self.get_performance_metrics()
         }
 
 
