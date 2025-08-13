@@ -805,3 +805,4 @@ def quick_debug_setup() -> DebugManager:
     )
     
     return DebugManager(config)
+

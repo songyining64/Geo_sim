@@ -531,3 +531,4 @@ if __name__ == "__main__":
     # 运行演示
     demo_adaptive_constraints()
     demo_integration_with_existing_pinn()
+

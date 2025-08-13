@@ -269,3 +269,4 @@ multiscale_strategy:
   levels: 3                                     # 多尺度层数
   coarsening_factor: 2                          # 粗化因子
   refinement_criteria: "gradient"               # 细化准则: gradient, misfit, resolution
+

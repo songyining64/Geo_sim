@@ -602,3 +602,4 @@ def load_config_from_template(template_name: str) -> SimulationConfig:
         raise FileNotFoundError(f"模板文件不存在: {template_path}")
     
     return SimulationConfig.from_yaml(str(template_path))
+
