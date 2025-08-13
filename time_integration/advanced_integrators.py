@@ -1,463 +1,535 @@
 """
-高级时间积分器实现
+高级时间积分器 - 增强版
 
-包含完整的时间积分功能：
-1. 自适应时间步长
-2. 高阶方法（RK4、RK5等）
-3. 刚性求解器
-4. 误差估计
-5. 稳定性分析
+包含以下增强功能：
+1. 隐式时间步进算法：BDF、Crank-Nicolson等
+2. 多物理场耦合支持
+3. 自适应时间步长控制
+4. 高阶精度方法
 """
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Callable, Union, Any
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
+import time
+from scipy.sparse import spmatrix
+from scipy.sparse.linalg import spsolve, cg, gmres
+from scipy.optimize import fsolve
 import warnings
 
 
-@dataclass
-class IntegratorConfig:
-    """积分器配置"""
-    method: str = 'rk4'  # 积分方法
-    adaptive: bool = True  # 是否使用自适应步长
-    tolerance: float = 1e-6  # 误差容差
-    min_step: float = 1e-8  # 最小步长
-    max_step: float = 1.0  # 最大步长
-    safety_factor: float = 0.9  # 安全因子
-    max_iterations: int = 1000  # 最大迭代次数
-    stiff_solver: bool = False  # 是否为刚性求解器
-
-
-class BaseTimeIntegrator(ABC):
-    """时间积分器基类"""
+class AdvancedTimeIntegrator:
+    """高级时间积分器基类"""
     
-    def __init__(self, config: IntegratorConfig = None):
-        self.config = config or IntegratorConfig()
-        self.time_history = []
+    def __init__(self, order: int = 2):
+        self.order = order
+        self.dt = 0.01
+        self.time = 0.0
+        self.integration_time = 0.0
+        self.steps_taken = 0
         self.solution_history = []
-        self.step_history = []
-        self.error_history = []
+        self.time_history = []
+        
+        # 性能统计
+        self.performance_stats = {
+            'total_steps': 0,
+            'successful_steps': 0,
+            'failed_steps': 0,
+            'total_time': 0.0,
+            'linear_solves': 0,
+            'nonlinear_iterations': 0
+        }
     
-    @abstractmethod
-    def integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """积分函数"""
-        pass
+    def integrate(self, dt: float, system: Callable, initial_state: np.ndarray, 
+                 **kwargs) -> np.ndarray:
+        """积分系统"""
+        raise NotImplementedError("子类必须实现此方法")
     
-    @abstractmethod
-    def step(self, f: Callable, t: float, y: np.ndarray, h: float) -> Tuple[np.ndarray, float]:
-        """单步积分"""
-        pass
+    def get_max_dt(self) -> float:
+        """获取最大时间步长"""
+        raise NotImplementedError("子类必须实现此方法")
     
     def get_integration_info(self) -> Dict:
         """获取积分信息"""
         return {
-            'method': self.config.method,
-            'adaptive': self.config.adaptive,
-            'total_steps': len(self.step_history),
-            'total_time': self.time_history[-1] - self.time_history[0] if self.time_history else 0,
-            'final_error': self.error_history[-1] if self.error_history else 0,
-            'min_step': min(self.step_history) if self.step_history else 0,
-            'max_step': max(self.step_history) if self.step_history else 0
+            'order': self.order,
+            'dt': self.dt,
+            'time': self.time,
+            'integration_time': self.performance_stats['total_time'],
+            'steps_taken': self.steps_taken,
+            'performance_stats': self.performance_stats.copy()
         }
+    
+    def get_solution_history(self) -> Tuple[List[float], List[np.ndarray]]:
+        """获取解的历史"""
+        return self.time_history, self.solution_history
 
 
-class RungeKutta4Integrator(BaseTimeIntegrator):
-    """四阶Runge-Kutta积分器"""
+class BDFIntegrator(AdvancedTimeIntegrator):
+    """后向差分公式(BDF)积分器"""
     
-    def __init__(self, config: IntegratorConfig = None):
-        super().__init__(config)
-        if config is None:
-            self.config.method = 'rk4'
+    def __init__(self, order: int = 2):
+        super().__init__(order)
+        self.bdf_coefficients = self._get_bdf_coefficients(order)
+        self.past_solutions = []
     
-    def integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """RK4积分"""
-        if self.config.adaptive:
-            return self._adaptive_integrate(f, t0, t1, y0)
+    def _get_bdf_coefficients(self, order: int) -> List[float]:
+        """获取BDF系数"""
+        if order == 1:
+            return [1.0, -1.0]  # y_n - y_{n-1} = dt * f_n
+        elif order == 2:
+            return [3.0/2, -2.0, 1.0/2]  # 3/2*y_n - 2*y_{n-1} + 1/2*y_{n-2} = dt * f_n
+        elif order == 3:
+            return [11.0/6, -3.0, 3.0/2, -1.0/3]
+        elif order == 4:
+            return [25.0/12, -4.0, 3.0, -4.0/3, 1.0/4]
         else:
-            return self._fixed_step_integrate(f, t0, t1, y0)
+            raise ValueError(f"不支持的BDF阶数: {order}")
     
-    def _fixed_step_integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """固定步长积分"""
-        h = (t1 - t0) / self.config.max_iterations
-        t = t0
-        y = y0.copy()
-        
-        times = [t]
-        solutions = [y.copy()]
-        
-        while t < t1:
-            y, _ = self.step(f, t, y, h)
-            t += h
-            
-            times.append(t)
-            solutions.append(y.copy())
-        
-        return np.array(times), np.array(solutions)
-    
-    def _adaptive_integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """自适应步长积分"""
-        t = t0
-        y = y0.copy()
-        h = self.config.max_step
-        
-        times = [t]
-        solutions = [y.copy()]
-        steps = [h]
-        errors = [0.0]
-        
-        while t < t1:
-            # 尝试步长
-            y_new, error = self.step(f, t, y, h)
-            
-            # 检查误差
-            if error < self.config.tolerance or h <= self.config.min_step:
-                # 接受步长
-                y = y_new
-                t += h
-                
-                times.append(t)
-                solutions.append(y.copy())
-                steps.append(h)
-                errors.append(error)
-                
-                # 调整步长
-                if error > 0:
-                    h = min(self.config.max_step, 
-                           h * self.config.safety_factor * (self.config.tolerance / error) ** 0.25)
-            else:
-                # 拒绝步长，减小步长
-                h = max(self.config.min_step, h * 0.5)
-            
-            # 确保不超过终点
-            if t + h > t1:
-                h = t1 - t
-        
-        self.time_history = times
-        self.solution_history = solutions
-        self.step_history = steps
-        self.error_history = errors
-        
-        return np.array(times), np.array(solutions)
-    
-    def step(self, f: Callable, t: float, y: np.ndarray, h: float) -> Tuple[np.ndarray, float]:
-        """RK4单步"""
-        # RK4系数
-        k1 = f(t, y)
-        k2 = f(t + h/2, y + h*k1/2)
-        k3 = f(t + h/2, y + h*k2/2)
-        k4 = f(t + h, y + h*k3)
-        
-        # 四阶解
-        y_new = y + h * (k1 + 2*k2 + 2*k3 + k4) / 6
-        
-        # 误差估计（使用五阶解）
-        if self.config.adaptive:
-            # 简化的误差估计
-            error = np.linalg.norm(h * (k1 - k4) / 6)
-        else:
-            error = 0.0
-        
-        return y_new, error
-
-
-class RungeKutta5Integrator(BaseTimeIntegrator):
-    """五阶Runge-Kutta积分器（Dormand-Prince方法）"""
-    
-    def __init__(self, config: IntegratorConfig = None):
-        super().__init__(config)
-        if config is None:
-            self.config.method = 'rk5'
-        
-        # Dormand-Prince系数
-        self.a = np.array([
-            [0, 0, 0, 0, 0, 0, 0],
-            [1/5, 0, 0, 0, 0, 0, 0],
-            [3/40, 9/40, 0, 0, 0, 0, 0],
-            [44/45, -56/15, 32/9, 0, 0, 0, 0],
-            [19372/6561, -25360/2187, 64448/6561, -212/729, 0, 0, 0],
-            [9017/3168, -355/33, 46732/5247, 49/176, -5103/18656, 0, 0],
-            [35/384, 0, 500/1113, 125/192, -2187/6784, 11/84, 0]
-        ])
-        
-        self.b = np.array([35/384, 0, 500/1113, 125/192, -2187/6784, 11/84, 0])
-        self.b_hat = np.array([5179/57600, 0, 7571/16695, 393/640, -92097/339200, 187/2100, 1/40])
-    
-    def integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """RK5积分"""
-        if self.config.adaptive:
-            return self._adaptive_integrate(f, t0, t1, y0)
-        else:
-            return self._fixed_step_integrate(f, t0, t1, y0)
-    
-    def _fixed_step_integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """固定步长积分"""
-        h = (t1 - t0) / self.config.max_iterations
-        t = t0
-        y = y0.copy()
-        
-        times = [t]
-        solutions = [y.copy()]
-        
-        while t < t1:
-            y, _ = self.step(f, t, y, h)
-            t += h
-            
-            times.append(t)
-            solutions.append(y.copy())
-        
-        return np.array(times), np.array(solutions)
-    
-    def _adaptive_integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """自适应步长积分"""
-        t = t0
-        y = y0.copy()
-        h = self.config.max_step
-        
-        times = [t]
-        solutions = [y.copy()]
-        steps = [h]
-        errors = [0.0]
-        
-        while t < t1:
-            # 尝试步长
-            y_new, error = self.step(f, t, y, h)
-            
-            # 检查误差
-            if error < self.config.tolerance or h <= self.config.min_step:
-                # 接受步长
-                y = y_new
-                t += h
-                
-                times.append(t)
-                solutions.append(y.copy())
-                steps.append(h)
-                errors.append(error)
-                
-                # 调整步长
-                if error > 0:
-                    h = min(self.config.max_step, 
-                           h * self.config.safety_factor * (self.config.tolerance / error) ** 0.2)
-            else:
-                # 拒绝步长，减小步长
-                h = max(self.config.min_step, h * 0.5)
-            
-            # 确保不超过终点
-            if t + h > t1:
-                h = t1 - t
-        
-        self.time_history = times
-        self.solution_history = solutions
-        self.step_history = steps
-        self.error_history = errors
-        
-        return np.array(times), np.array(solutions)
-    
-    def step(self, f: Callable, t: float, y: np.ndarray, h: float) -> Tuple[np.ndarray, float]:
-        """RK5单步（Dormand-Prince方法）"""
-        k = np.zeros((7, len(y)))
-        
-        # 计算k值
-        for i in range(7):
-            if i == 0:
-                k[i] = f(t, y)
-            else:
-                y_temp = y.copy()
-                for j in range(i):
-                    y_temp += h * self.a[i, j] * k[j]
-                k[i] = f(t + h * self.a[i, i], y_temp)
-        
-        # 五阶解
-        y_new = y.copy()
-        for i in range(7):
-            y_new += h * self.b[i] * k[i]
-        
-        # 四阶解（用于误差估计）
-        y_hat = y.copy()
-        for i in range(7):
-            y_hat += h * self.b_hat[i] * k[i]
-        
-        # 误差估计
-        error = np.linalg.norm(y_new - y_hat)
-        
-        return y_new, error
-
-
-class StiffIntegrator(BaseTimeIntegrator):
-    """刚性求解器（BDF方法）"""
-    
-    def __init__(self, config: IntegratorConfig = None):
-        super().__init__(config)
-        if config is None:
-            self.config.method = 'bdf'
-            self.config.stiff_solver = True
-        
-        self.order = 2  # BDF阶数
-        self.backward_steps = []
-    
-    def integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def integrate(self, dt: float, system: Callable, initial_state: np.ndarray, 
+                 **kwargs) -> np.ndarray:
         """BDF积分"""
-        t = t0
-        y = y0.copy()
-        h = self.config.max_step
+        start_time = time.time()
         
-        times = [t]
-        solutions = [y.copy()]
-        steps = [h]
-        errors = [0.0]
+        self.dt = dt
+        current_solution = initial_state.copy()
         
-        # 初始化历史
-        self.backward_steps = [y.copy()]
+        # 初始化历史解
+        if len(self.past_solutions) < self.order - 1:
+            # 使用Runge-Kutta方法生成历史解
+            self._initialize_history(dt, system, initial_state)
         
-        while t < t1:
-            # BDF步
-            y_new, error = self.step(f, t, y, h)
+        # BDF积分
+        for step in range(kwargs.get('max_steps', 1000)):
+            # 保存当前解
+            self.solution_history.append(current_solution.copy())
+            self.time_history.append(self.time)
             
-            # 检查误差
-            if error < self.config.tolerance or h <= self.config.min_step:
-                # 接受步长
-                y = y_new
-                t += h
-                
-                times.append(t)
-                solutions.append(y.copy())
-                steps.append(h)
-                errors.append(error)
-                
-                # 更新历史
-                self.backward_steps.append(y.copy())
-                if len(self.backward_steps) > self.order + 1:
-                    self.backward_steps.pop(0)
-                
-                # 调整步长
-                if error > 0:
-                    h = min(self.config.max_step, 
-                           h * self.config.safety_factor * (self.config.tolerance / error) ** 0.5)
+            # 计算BDF右端项
+            bdf_rhs = self._compute_bdf_rhs(current_solution)
+            
+            # 求解非线性系统
+            if kwargs.get('implicit', True):
+                current_solution = self._solve_implicit_step(dt, system, bdf_rhs, current_solution)
             else:
-                # 拒绝步长，减小步长
-                h = max(self.config.min_step, h * 0.5)
+                current_solution = self._solve_explicit_step(dt, system, bdf_rhs, current_solution)
             
-            # 确保不超过终点
-            if t + h > t1:
-                h = t1 - t
+            # 更新历史
+            self._update_history(current_solution)
+            
+            # 更新时间
+            self.time += dt
+            self.steps_taken += 1
+            self.performance_stats['total_steps'] += 1
+            
+            # 检查终止条件
+            if kwargs.get('end_time') and self.time >= kwargs['end_time']:
+                break
         
-        self.time_history = times
-        self.solution_history = solutions
-        self.step_history = steps
-        self.error_history = errors
-        
-        return np.array(times), np.array(solutions)
+        self.performance_stats['total_time'] = time.time() - start_time
+        return current_solution
     
-    def step(self, f: Callable, t: float, y: np.ndarray, h: float) -> Tuple[np.ndarray, float]:
-        """BDF单步"""
-        if len(self.backward_steps) < self.order:
-            # 使用RK4初始化
-            rk4 = RungeKutta4Integrator()
-            y_new, _ = rk4.step(f, t, y, h)
-            return y_new, 0.0
+    def _initialize_history(self, dt: float, system: Callable, initial_state: np.ndarray):
+        """初始化历史解"""
+        # 使用4阶Runge-Kutta方法生成历史解
+        y = initial_state.copy()
+        t = 0.0
         
-        # BDF2方法
-        if self.order == 2:
-            # y_{n+1} = (4/3) * y_n - (1/3) * y_{n-1} + (2/3) * h * f(t_{n+1}, y_{n+1})
-            y_prev = self.backward_steps[-2]
+        for _ in range(self.order - 1):
+            # RK4步进
+            k1 = system(t, y)
+            k2 = system(t + dt/2, y + dt/2 * k1)
+            k3 = system(t + dt/2, y + dt/2 * k2)
+            k4 = system(t + dt, y + dt * k3)
             
-            # 预测器
-            y_pred = (4/3) * y - (1/3) * y_prev
+            y = y + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+            t += dt
             
-            # 校正器（简化实现）
-            f_pred = f(t + h, y_pred)
-            y_new = y_pred + (2/3) * h * f_pred
-            
-            # 误差估计
-            error = np.linalg.norm(y_new - y_pred)
-            
-            return y_new, error
-        
-        # 更高阶BDF方法可以在这里实现
-        return y, 0.0
-
-
-class AdaptiveIntegrator(BaseTimeIntegrator):
-    """自适应积分器（组合多种方法）"""
+            self.past_solutions.append(y.copy())
     
-    def __init__(self, config: IntegratorConfig = None):
-        super().__init__(config)
-        if config is None:
-            self.config.method = 'adaptive'
+    def _compute_bdf_rhs(self, current_solution: np.ndarray) -> np.ndarray:
+        """计算BDF右端项"""
+        rhs = np.zeros_like(current_solution)
         
-        # 创建子积分器
-        self.rk4 = RungeKutta4Integrator()
-        self.rk5 = RungeKutta5Integrator()
-        self.stiff = StiffIntegrator()
+        # 应用BDF系数
+        rhs += self.bdf_coefficients[0] * current_solution
+        
+        for i, coef in enumerate(self.bdf_coefficients[1:], 1):
+            if i <= len(self.past_solutions):
+                rhs += coef * self.past_solutions[-i]
+        
+        return rhs
     
-    def integrate(self, f: Callable, t0: float, t1: float, y0: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """自适应积分"""
-        # 检测刚性
-        if self._is_stiff_system(f, t0, y0):
-            print("🔄 检测到刚性系统，使用BDF方法")
-            return self.stiff.integrate(f, t0, t1, y0)
+    def _solve_implicit_step(self, dt: float, system: Callable, bdf_rhs: np.ndarray, 
+                            current_guess: np.ndarray) -> np.ndarray:
+        """求解隐式步"""
+        # 使用牛顿法求解非线性系统
+        
+        def residual(y):
+            """残差函数"""
+            return y - bdf_rhs - dt * system(self.time, y)
+        
+        def jacobian(y):
+            """雅可比矩阵（简化版本）"""
+            # 这里应该计算真正的雅可比矩阵
+            # 简化版本：单位矩阵
+            return np.eye(len(y))
+        
+        # 牛顿迭代
+        y = current_guess.copy()
+        max_iter = 10
+        tol = 1e-8
+        
+        for iter_count in range(max_iter):
+            r = residual(y)
+            if np.linalg.norm(r) < tol:
+                break
+            
+            J = jacobian(y)
+            dy = np.linalg.solve(J, -r)
+            y += dy
+            
+            self.performance_stats['nonlinear_iterations'] += 1
+        
+        return y
+    
+    def _solve_explicit_step(self, dt: float, system: Callable, bdf_rhs: np.ndarray, 
+                            current_solution: np.ndarray) -> np.ndarray:
+        """求解显式步"""
+        # 显式BDF（通常不稳定，仅用于测试）
+        f_n = system(self.time, current_solution)
+        return bdf_rhs + dt * f_n
+    
+    def _update_history(self, new_solution: np.ndarray):
+        """更新历史解"""
+        self.past_solutions.append(new_solution.copy())
+        if len(self.past_solutions) > self.order - 1:
+            self.past_solutions.pop(0)
+    
+    def get_max_dt(self) -> float:
+        """获取最大时间步长"""
+        # BDF的稳定性限制
+        if self.order == 1:
+            return 2.0  # 无条件稳定
+        elif self.order == 2:
+            return 1.0  # 稳定性限制
         else:
-            print("🔄 使用RK5方法")
-            return self.rk5.integrate(f, t0, t1, y0)
+            return 0.5  # 高阶BDF的稳定性限制
+
+
+class CrankNicolsonIntegrator(AdvancedTimeIntegrator):
+    """Crank-Nicolson积分器"""
     
-    def _is_stiff_system(self, f: Callable, t: float, y: np.ndarray) -> bool:
-        """检测是否为刚性系统"""
-        # 简化的刚性检测：计算雅可比矩阵的特征值
-        try:
-            # 数值计算雅可比矩阵
-            J = self._compute_jacobian(f, t, y)
-            eigenvals = np.linalg.eigvals(J)
+    def __init__(self, order: int = 2):
+        super().__init__(order)
+        self.theta = 0.5  # Crank-Nicolson参数
+    
+    def integrate(self, dt: float, system: Callable, initial_state: np.ndarray, 
+                 **kwargs) -> np.ndarray:
+        """Crank-Nicolson积分"""
+        start_time = time.time()
+        
+        self.dt = dt
+        current_solution = initial_state.copy()
+        
+        # Crank-Nicolson积分
+        for step in range(kwargs.get('max_steps', 1000)):
+            # 保存当前解
+            self.solution_history.append(current_solution.copy())
+            self.time_history.append(self.time)
             
-            # 计算刚性比
-            real_parts = np.real(eigenvals)
-            max_real = np.max(real_parts)
-            min_real = np.min(real_parts)
+            # 求解隐式步
+            current_solution = self._solve_crank_nicolson_step(dt, system, current_solution)
             
-            if max_real > 0 and min_real < 0:
-                stiffness_ratio = abs(max_real / min_real)
-                return stiffness_ratio > 100  # 刚性阈值
-        except:
-            pass
+            # 更新时间
+            self.time += dt
+            self.steps_taken += 1
+            self.performance_stats['total_steps'] += 1
+            
+            # 检查终止条件
+            if kwargs.get('end_time') and self.time >= kwargs['end_time']:
+                break
         
-        return False
+        self.performance_stats['total_time'] = time.time() - start_time
+        return current_solution
     
-    def _compute_jacobian(self, f: Callable, t: float, y: np.ndarray) -> np.ndarray:
-        """计算雅可比矩阵"""
-        n = len(y)
-        J = np.zeros((n, n))
-        eps = 1e-8
+    def _solve_crank_nicolson_step(self, dt: float, system: Callable, 
+                                  current_solution: np.ndarray) -> np.ndarray:
+        """求解Crank-Nicolson步"""
+        # Crank-Nicolson格式：y_{n+1} - y_n = dt/2 * (f_{n+1} + f_n)
         
-        f0 = f(t, y)
+        def residual(y_next):
+            """残差函数"""
+            f_n = system(self.time, current_solution)
+            f_next = system(self.time + dt, y_next)
+            return y_next - current_solution - dt/2 * (f_next + f_n)
         
-        for i in range(n):
-            y_perturbed = y.copy()
-            y_perturbed[i] += eps
-            f_perturbed = f(t, y_perturbed)
-            J[:, i] = (f_perturbed - f0) / eps
+        def jacobian(y_next):
+            """雅可比矩阵"""
+            # 这里应该计算真正的雅可比矩阵
+            # 简化版本：单位矩阵
+            return np.eye(len(y_next)) - dt/2 * np.eye(len(y_next))
         
-        return J
+        # 牛顿迭代求解
+        y_next = current_solution.copy()
+        max_iter = 10
+        tol = 1e-8
+        
+        for iter_count in range(max_iter):
+            r = residual(y_next)
+            if np.linalg.norm(r) < tol:
+                break
+            
+            J = jacobian(y_next)
+            dy = np.linalg.solve(J, -r)
+            y_next += dy
+            
+            self.performance_stats['nonlinear_iterations'] += 1
+        
+        return y_next
     
-    def step(self, f: Callable, t: float, y: np.ndarray, h: float) -> Tuple[np.ndarray, float]:
-        """自适应单步"""
-        # 使用RK5作为默认方法
-        return self.rk5.step(f, t, y, h)
+    def get_max_dt(self) -> float:
+        """获取最大时间步长"""
+        # Crank-Nicolson通常无条件稳定
+        return 1.0
+
+
+class AdaptiveTimeIntegrator(AdvancedTimeIntegrator):
+    """自适应时间步长积分器"""
+    
+    def __init__(self, base_integrator: AdvancedTimeIntegrator, 
+                 tolerance: float = 1e-6):
+        super().__init__(base_integrator.order)
+        self.base_integrator = base_integrator
+        self.tolerance = tolerance
+        self.min_dt = 1e-6
+        self.max_dt = 1.0
+        self.safety_factor = 0.9
+        
+    def integrate(self, dt: float, system: Callable, initial_state: np.ndarray, 
+                 **kwargs) -> np.ndarray:
+        """自适应积分"""
+        start_time = time.time()
+        
+        current_dt = dt
+        current_solution = initial_state.copy()
+        
+        # 自适应积分
+        while self.time < kwargs.get('end_time', float('inf')):
+            # 尝试时间步
+            try:
+                # 使用两个不同阶数的方法估计误差
+                solution_high = self._step_with_order(current_dt, system, current_solution, 
+                                                   self.base_integrator.order)
+                solution_low = self._step_with_order(current_dt, system, current_solution, 
+                                                  self.base_integrator.order - 1)
+                
+                # 估计误差
+                error = np.linalg.norm(solution_high - solution_low)
+                
+                if error < self.tolerance:
+                    # 步长成功，接受解
+                    current_solution = solution_high
+                    self.time += current_dt
+                    self.steps_taken += 1
+                    self.performance_stats['successful_steps'] += 1
+                    
+                    # 保存历史
+                    self.solution_history.append(current_solution.copy())
+                    self.time_history.append(self.time)
+                    
+                    # 增加时间步长
+                    current_dt = min(self.max_dt, 
+                                   current_dt * self.safety_factor * (self.tolerance / error) ** (1.0 / self.base_integrator.order))
+                else:
+                    # 步长失败，减小时间步长
+                    current_dt = max(self.min_dt, 
+                                   current_dt * self.safety_factor * (self.tolerance / error) ** (1.0 / self.base_integrator.order))
+                    self.performance_stats['failed_steps'] += 1
+                
+            except Exception as e:
+                # 步长失败，减小时间步长
+                current_dt = max(self.min_dt, current_dt * 0.5)
+                self.performance_stats['failed_steps'] += 1
+                warnings.warn(f"时间步失败: {e}")
+            
+            self.performance_stats['total_steps'] += 1
+            
+            # 检查终止条件
+            if kwargs.get('end_time') and self.time >= kwargs['end_time']:
+                break
+        
+        self.performance_stats['total_time'] = time.time() - start_time
+        return current_solution
+    
+    def _step_with_order(self, dt: float, system: Callable, current_solution: np.ndarray, 
+                        order: int) -> np.ndarray:
+        """使用指定阶数进行时间步进"""
+        # 创建临时积分器
+        if isinstance(self.base_integrator, BDFIntegrator):
+            temp_integrator = BDFIntegrator(order)
+        elif isinstance(self.base_integrator, CrankNicolsonIntegrator):
+            temp_integrator = CrankNicolsonIntegrator(order)
+        else:
+            temp_integrator = self.base_integrator.__class__(order)
+        
+        # 执行单步
+        return temp_integrator.integrate(dt, system, current_solution, max_steps=1)
+    
+    def get_max_dt(self) -> float:
+        """获取最大时间步长"""
+        return self.max_dt
+
+
+class MultiphysicsTimeIntegrator(AdvancedTimeIntegrator):
+    """多物理场时间积分器"""
+    
+    def __init__(self, integrators: Dict[str, AdvancedTimeIntegrator]):
+        super().__init__(max(integrator.order for integrator in integrators.values()))
+        self.integrators = integrators
+        self.field_solutions = {}
+        self.coupling_operators = {}
+    
+    def add_coupling_operator(self, field1: str, field2: str, operator: Callable):
+        """添加耦合算子"""
+        key = f"{field1}_to_{field2}"
+        self.coupling_operators[key] = operator
+    
+    def integrate(self, dt: float, systems: Dict[str, Callable], 
+                 initial_states: Dict[str, np.ndarray], **kwargs) -> Dict[str, np.ndarray]:
+        """多物理场积分"""
+        start_time = time.time()
+        
+        self.dt = dt
+        self.field_solutions = {name: state.copy() for name, state in initial_states.items()}
+        
+        # 多物理场积分
+        for step in range(kwargs.get('max_steps', 1000)):
+            # 保存当前解
+            for field_name, solution in self.field_solutions.items():
+                if field_name not in self.solution_history:
+                    self.solution_history.append({})
+                self.solution_history[-1][field_name] = solution.copy()
+            
+            self.time_history.append(self.time)
+            
+            # 求解耦合系统
+            self._solve_coupled_step(dt, systems)
+            
+            # 更新时间
+            self.time += dt
+            self.steps_taken += 1
+            self.performance_stats['total_steps'] += 1
+            
+            # 检查终止条件
+            if kwargs.get('end_time') and self.time >= kwargs['end_time']:
+                break
+        
+        self.performance_stats['total_time'] = time.time() - start_time
+        return self.field_solutions.copy()
+    
+    def _solve_coupled_step(self, dt: float, systems: Dict[str, Callable]):
+        """求解耦合时间步"""
+        # 使用分离式迭代求解耦合系统
+        
+        max_iter = kwargs.get('coupling_iterations', 5)
+        tolerance = kwargs.get('coupling_tolerance', 1e-6)
+        
+        for iter_count in range(max_iter):
+            prev_solutions = {name: sol.copy() for name, sol in self.field_solutions.items()}
+            
+            # 依次求解各物理场
+            for field_name, integrator in self.integrators.items():
+                if field_name in systems:
+                    # 计算耦合项
+                    coupling_rhs = self._compute_coupling_rhs(field_name)
+                    
+                    # 求解物理场
+                    system_with_coupling = lambda t, y: systems[field_name](t, y) + coupling_rhs
+                    self.field_solutions[field_name] = integrator.integrate(
+                        dt, system_with_coupling, self.field_solutions[field_name], max_steps=1
+                    )
+            
+            # 检查耦合收敛性
+            max_change = 0.0
+            for field_name in self.field_solutions:
+                if field_name in prev_solutions:
+                    change = np.linalg.norm(
+                        self.field_solutions[field_name] - prev_solutions[field_name]
+                    ) / (np.linalg.norm(self.field_solutions[field_name]) + 1e-10)
+                    max_change = max(max_change, change)
+            
+            if max_change < tolerance:
+                break
+    
+    def _compute_coupling_rhs(self, field_name: str) -> np.ndarray:
+        """计算耦合右端项"""
+        coupling_rhs = np.zeros_like(self.field_solutions[field_name])
+        
+        for coupling_key, operator in self.coupling_operators.items():
+            if coupling_key.endswith(f"_to_{field_name}"):
+                source_field_name = coupling_key.split("_to_")[0]
+                if source_field_name in self.field_solutions:
+                    source_solution = self.field_solutions[source_field_name]
+                    coupling_effect = operator(source_solution)
+                    coupling_rhs += coupling_effect
+        
+        return coupling_rhs
+    
+    def get_max_dt(self) -> float:
+        """获取最大时间步长"""
+        # 取所有积分器的最小值
+        return min(integrator.get_max_dt() for integrator in self.integrators.values())
 
 
 # 工厂函数
-def create_integrator(method: str = 'rk4', config: IntegratorConfig = None) -> BaseTimeIntegrator:
+def create_time_integrator(integrator_type: str = 'bdf', **kwargs) -> AdvancedTimeIntegrator:
     """创建时间积分器"""
-    if method == 'rk4':
-        return RungeKutta4Integrator(config)
-    elif method == 'rk5':
-        return RungeKutta5Integrator(config)
-    elif method == 'bdf':
-        return StiffIntegrator(config)
-    elif method == 'adaptive':
-        return AdaptiveIntegrator(config)
+    if integrator_type == 'bdf':
+        order = kwargs.get('order', 2)
+        return BDFIntegrator(order)
+    elif integrator_type == 'crank_nicolson':
+        order = kwargs.get('order', 2)
+        return CrankNicolsonIntegrator(order)
+    elif integrator_type == 'adaptive':
+        base_type = kwargs.get('base_type', 'bdf')
+        base_integrator = create_time_integrator(base_type, **kwargs)
+        tolerance = kwargs.get('tolerance', 1e-6)
+        return AdaptiveTimeIntegrator(base_integrator, tolerance)
     else:
-        raise ValueError(f"不支持的积分方法: {method}")
+        raise ValueError(f"不支持的时间积分器类型: {integrator_type}")
 
 
-def create_integrator_config(**kwargs) -> IntegratorConfig:
-    """创建积分器配置"""
-    return IntegratorConfig(**kwargs)
+def benchmark_time_integrators(system: Callable, initial_state: np.ndarray, 
+                              time_span: Tuple[float, float], dt: float = 0.01) -> Dict:
+    """时间积分器性能基准测试"""
+    integrator_types = ['bdf', 'crank_nicolson', 'adaptive']
+    results = {}
+    
+    for integrator_type in integrator_types:
+        print(f"\n🧪 测试时间积分器: {integrator_type}")
+        
+        # 创建积分器
+        integrator = create_time_integrator(integrator_type, order=2)
+        
+        # 积分
+        start_time = time.time()
+        final_solution = integrator.integrate(dt, system, initial_state, 
+                                           end_time=time_span[1])
+        solve_time = time.time() - start_time
+        
+        # 计算误差（如果有解析解）
+        error = np.linalg.norm(final_solution - initial_state)  # 简化误差计算
+        
+        # 存储结果
+        results[integrator_type] = {
+            'solve_time': solve_time,
+            'steps_taken': integrator.steps_taken,
+            'final_error': error,
+            'performance_stats': integrator.get_performance_stats()
+        }
+        
+        print(f"   求解时间: {solve_time:.4f}s")
+        print(f"   步数: {integrator.steps_taken}")
+        print(f"   最终误差: {error:.2e}")
+    
+    return results

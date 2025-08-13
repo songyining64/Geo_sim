@@ -240,113 +240,306 @@ class RecoveryErrorEstimator(BaseErrorEstimator):
         return np.sqrt(np.sum(np.array(error_values) ** 2))
 
 
-class GradientErrorEstimator(BaseErrorEstimator):
-    """梯度误差估计器"""
+class StrainRateErrorEstimator(BaseErrorEstimator):
+    """基于应变率的误差估计器 - 适用于地质力学问题"""
     
-    def __init__(self, tolerance: float = 1e-6):
+    def __init__(self, tolerance: float = 1e-6, strain_rate_threshold: float = 1e-6):
         super().__init__(tolerance)
+        self.strain_rate_threshold = strain_rate_threshold
+    
+    def compute_strain_rate(self, displacement: np.ndarray, mesh_data: Dict) -> np.ndarray:
+        """计算应变率"""
+        # 这里需要根据具体的有限元实现来计算应变率
+        # 简化实现：基于位移梯度
+        
+        if displacement.ndim == 1:
+            # 1D情况
+            strain_rate = np.gradient(displacement)
+        else:
+            # 2D/3D情况：计算位移梯度
+            strain_rate = np.zeros_like(displacement)
+            
+            # 获取网格信息
+            elements = mesh_data.get('elements', [])
+            nodes = mesh_data.get('nodes', [])
+            
+            for element in elements:
+                element_nodes = element.get('nodes', [])
+                if len(element_nodes) >= 2:
+                    # 计算单元内的应变率
+                    element_displacement = displacement[element_nodes]
+                    element_coords = nodes[element_nodes]
+                    
+                    # 简化的应变率计算
+                    if len(element_nodes) == 2:  # 1D单元
+                        strain_rate[element_nodes] = np.gradient(element_displacement)
+                    else:  # 2D/3D单元
+                        # 这里需要更复杂的应变率计算
+                        # 简化：使用位移的梯度
+                        for i in range(displacement.shape[1]):
+                            strain_rate[element_nodes, i] = np.gradient(element_displacement[:, i])
+        
+        return strain_rate
     
     def compute_error(self, solution: np.ndarray, mesh_data: Dict) -> List[ErrorIndicator]:
-        """计算梯度误差"""
-        # 计算梯度
-        gradient = self._compute_gradient(solution, mesh_data)
+        """计算基于应变率的误差"""
+        # 假设solution包含位移场
+        displacement = solution
         
-        # 计算每个单元的梯度误差
+        # 计算应变率
+        strain_rate = self.compute_strain_rate(displacement, mesh_data)
+        
+        # 计算应变率幅值
+        if strain_rate.ndim > 1:
+            strain_rate_magnitude = np.sqrt(np.sum(strain_rate**2, axis=1))
+        else:
+            strain_rate_magnitude = np.abs(strain_rate)
+        
+        # 计算每个单元的误差
         elements = mesh_data.get('elements', [])
         error_indicators = []
         
         for i, element in enumerate(elements):
-            element_nodes = element['nodes']
-            element_gradient = gradient[element_nodes]
-            
-            # 计算梯度的变化率
-            gradient_variation = np.std(element_gradient, axis=0)
-            error_value = np.sqrt(np.sum(gradient_variation ** 2))
-            
-            indicator = ErrorIndicator(
-                element_id=i,
-                error_value=error_value,
-                error_type='gradient',
-                refinement_flag=error_value > self.tolerance
-            )
-            error_indicators.append(indicator)
+            element_nodes = element.get('nodes', [])
+            if element_nodes:
+                # 计算单元内的平均应变率
+                element_strain_rate = strain_rate_magnitude[element_nodes]
+                error_value = np.mean(element_strain_rate)
+                
+                # 创建误差指示器
+                indicator = ErrorIndicator(
+                    element_id=i,
+                    error_value=error_value,
+                    error_type="strain_rate",
+                    refinement_flag=error_value > self.strain_rate_threshold
+                )
+                error_indicators.append(indicator)
         
-        self.error_indicators = error_indicators
         return error_indicators
-    
-    def _compute_gradient(self, solution: np.ndarray, mesh_data: Dict) -> np.ndarray:
-        """计算梯度"""
-        # 使用有限差分计算梯度
-        if solution.ndim == 1:
-            return np.gradient(solution).reshape(-1, 1)
-        else:
-            gradient = np.zeros((len(solution), solution.ndim))
-            for i in range(solution.ndim):
-                gradient[:, i] = np.gradient(solution, axis=i)
-            return gradient
     
     def compute_global_error(self, error_indicators: List[ErrorIndicator]) -> float:
         """计算全局误差"""
         if not error_indicators:
             return 0.0
         
+        # 使用L2范数计算全局误差
         error_values = [indicator.error_value for indicator in error_indicators]
-        return np.sqrt(np.sum(np.array(error_values) ** 2))
+        return np.sqrt(np.mean(np.array(error_values) ** 2))
+    
+    def get_refinement_candidates(self, error_indicators: List[ErrorIndicator], 
+                                refinement_ratio: float = 0.3) -> List[int]:
+        """获取需要细化的单元候选"""
+        if not error_indicators:
+            return []
+        
+        # 按误差值排序
+        sorted_indicators = sorted(error_indicators, key=lambda x: x.error_value, reverse=True)
+        
+        # 选择误差最大的单元进行细化
+        n_refine = int(refinement_ratio * len(sorted_indicators))
+        candidates = [indicator.element_id for indicator in sorted_indicators[:n_refine]]
+        
+        return candidates
+    
+    def get_coarsening_candidates(self, error_indicators: List[ErrorIndicator],
+                                coarsening_ratio: float = 0.2) -> List[int]:
+        """获取可以粗化的单元候选"""
+        if not error_indicators:
+            return []
+        
+        # 按误差值排序
+        sorted_indicators = sorted(error_indicators, key=lambda x: x.error_value)
+        
+        # 选择误差最小的单元进行粗化
+        n_coarsen = int(coarsening_ratio * len(sorted_indicators))
+        candidates = [indicator.element_id for indicator in sorted_indicators[:n_coarsen]]
+        
+        return candidates
+
+
+class GradientErrorEstimator(BaseErrorEstimator):
+    """基于梯度的误差估计器"""
+    
+    def __init__(self, tolerance: float = 1e-6, gradient_threshold: float = 1e-3):
+        super().__init__(tolerance)
+        self.gradient_threshold = gradient_threshold
+    
+    def compute_gradient(self, solution: np.ndarray, mesh_data: Dict) -> np.ndarray:
+        """计算解的梯度"""
+        if solution.ndim == 1:
+            # 1D情况
+            gradient = np.gradient(solution)
+        else:
+            # 2D/3D情况
+            gradient = np.zeros_like(solution)
+            for i in range(solution.shape[1]):
+                gradient[:, i] = np.gradient(solution[:, i])
+        
+        return gradient
+    
+    def compute_error(self, solution: np.ndarray, mesh_data: Dict) -> List[ErrorIndicator]:
+        """计算基于梯度的误差"""
+        gradient = self.compute_gradient(solution, mesh_data)
+        
+        # 计算梯度幅值
+        if gradient.ndim > 1:
+            gradient_magnitude = np.sqrt(np.sum(gradient**2, axis=1))
+        else:
+            gradient_magnitude = np.abs(gradient)
+        
+        # 计算每个单元的误差
+        elements = mesh_data.get('elements', [])
+        error_indicators = []
+        
+        for i, element in enumerate(elements):
+            element_nodes = element.get('nodes', [])
+            if element_nodes:
+                # 计算单元内的平均梯度
+                element_gradient = gradient_magnitude[element_nodes]
+                error_value = np.mean(element_gradient)
+                
+                # 创建误差指示器
+                indicator = ErrorIndicator(
+                    element_id=i,
+                    error_value=error_value,
+                    error_type="gradient",
+                    refinement_flag=error_value > self.gradient_threshold
+                )
+                error_indicators.append(indicator)
+        
+        return error_indicators
+    
+    def compute_global_error(self, error_indicators: List[ErrorIndicator]) -> float:
+        """计算全局误差"""
+        if not error_indicators:
+            return 0.0
+        
+        # 使用L2范数计算全局误差
+        error_values = [indicator.error_value for indicator in error_indicators]
+        return np.sqrt(np.mean(np.array(error_values) ** 2))
+
+
+class HessianErrorEstimator(BaseErrorEstimator):
+    """基于Hessian的误差估计器 - 适用于高阶精度问题"""
+    
+    def __init__(self, tolerance: float = 1e-6, hessian_threshold: float = 1e-2):
+        super().__init__(tolerance)
+        self.hessian_threshold = hessian_threshold
+    
+    def compute_hessian(self, solution: np.ndarray, mesh_data: Dict) -> np.ndarray:
+        """计算解的Hessian矩阵"""
+        if solution.ndim == 1:
+            # 1D情况：二阶导数
+            hessian = np.gradient(np.gradient(solution))
+        else:
+            # 2D/3D情况：需要计算混合偏导数
+            # 简化实现：只计算对角项
+            hessian = np.zeros_like(solution)
+            for i in range(solution.shape[1]):
+                hessian[:, i] = np.gradient(np.gradient(solution[:, i]))
+        
+        return hessian
+    
+    def compute_error(self, solution: np.ndarray, mesh_data: Dict) -> List[ErrorIndicator]:
+        """计算基于Hessian的误差"""
+        hessian = self.compute_hessian(solution, mesh_data)
+        
+        # 计算Hessian的Frobenius范数
+        if hessian.ndim > 1:
+            hessian_norm = np.sqrt(np.sum(hessian**2, axis=1))
+        else:
+            hessian_norm = np.abs(hessian)
+        
+        # 计算每个单元的误差
+        elements = mesh_data.get('elements', [])
+        error_indicators = []
+        
+        for i, element in enumerate(elements):
+            element_nodes = element.get('nodes', [])
+            if element_nodes:
+                # 计算单元内的平均Hessian范数
+                element_hessian = hessian_norm[element_nodes]
+                error_value = np.mean(element_hessian)
+                
+                # 创建误差指示器
+                indicator = ErrorIndicator(
+                    element_id=i,
+                    error_value=error_value,
+                    error_type="hessian",
+                    refinement_flag=error_value > self.hessian_threshold
+                )
+                error_indicators.append(indicator)
+        
+        return error_indicators
+    
+    def compute_global_error(self, error_indicators: List[ErrorIndicator]) -> float:
+        """计算全局误差"""
+        if not error_indicators:
+            return 0.0
+        
+        # 使用L2范数计算全局误差
+        error_values = [indicator.error_value for indicator in error_indicators]
+        return np.sqrt(np.mean(np.array(error_values) ** 2))
 
 
 class AdaptiveErrorEstimator(BaseErrorEstimator):
-    """自适应误差估计器（组合多种方法）"""
+    """自适应误差估计器 - 根据问题特性选择最佳估计方法"""
     
-    def __init__(self, tolerance: float = 1e-6, weights: Dict[str, float] = None):
+    def __init__(self, tolerance: float = 1e-6):
         super().__init__(tolerance)
-        self.weights = weights or {
-            'residual': 0.4,
-            'recovery': 0.4,
-            'gradient': 0.2
+        self.estimators = {
+            'residual': ResidualErrorEstimator(tolerance),
+            'strain_rate': StrainRateErrorEstimator(tolerance),
+            'gradient': GradientErrorEstimator(tolerance),
+            'hessian': HessianErrorEstimator(tolerance)
         }
-        
-        # 初始化子估计器
-        self.residual_estimator = ResidualErrorEstimator(tolerance)
-        self.recovery_estimator = RecoveryErrorEstimator(tolerance)
-        self.gradient_estimator = GradientErrorEstimator(tolerance)
+        self.current_estimator = 'residual'
     
-    def compute_error(self, solution: np.ndarray, mesh_data: Dict) -> List[ErrorIndicator]:
-        """计算组合误差"""
-        # 计算各种误差
-        residual_indicators = self.residual_estimator.compute_error(solution, mesh_data)
-        recovery_indicators = self.recovery_estimator.compute_error(solution, mesh_data)
-        gradient_indicators = self.gradient_estimator.compute_error(solution, mesh_data)
+    def select_estimator(self, problem_features: Dict) -> str:
+        """根据问题特性选择最佳误差估计器"""
+        problem_type = problem_features.get('type', 'general')
         
-        # 组合误差
-        combined_indicators = []
-        n_elements = len(residual_indicators)
+        if problem_type == 'geomechanics':
+            # 地质力学问题：优先使用应变率估计器
+            return 'strain_rate'
+        elif problem_type == 'fluid_dynamics':
+            # 流体动力学：优先使用梯度估计器
+            return 'gradient'
+        elif problem_type == 'high_order':
+            # 高阶精度问题：使用Hessian估计器
+            return 'hessian'
+        else:
+            # 一般问题：使用残差估计器
+            return 'residual'
+    
+    def compute_error(self, solution: np.ndarray, mesh_data: Dict, 
+                     problem_features: Dict = None) -> List[ErrorIndicator]:
+        """计算误差"""
+        if problem_features:
+            self.current_estimator = self.select_estimator(problem_features)
         
-        for i in range(n_elements):
-            # 加权组合
-            combined_error = (
-                self.weights['residual'] * residual_indicators[i].error_value +
-                self.weights['recovery'] * recovery_indicators[i].error_value +
-                self.weights['gradient'] * gradient_indicators[i].error_value
-            )
-            
-            indicator = ErrorIndicator(
-                element_id=i,
-                error_value=combined_error,
-                error_type='adaptive',
-                refinement_flag=combined_error > self.tolerance
-            )
-            combined_indicators.append(indicator)
-        
-        self.error_indicators = combined_indicators
-        return combined_indicators
+        estimator = self.estimators[self.current_estimator]
+        return estimator.compute_error(solution, mesh_data)
     
     def compute_global_error(self, error_indicators: List[ErrorIndicator]) -> float:
         """计算全局误差"""
-        if not error_indicators:
-            return 0.0
-        
-        error_values = [indicator.error_value for indicator in error_indicators]
-        return np.sqrt(np.sum(np.array(error_values) ** 2))
+        estimator = self.estimators[self.current_estimator]
+        return estimator.compute_global_error(error_indicators)
+    
+    def get_refinement_candidates(self, error_indicators: List[ErrorIndicator],
+                                refinement_ratio: float = 0.3) -> List[int]:
+        """获取需要细化的单元候选"""
+        if self.current_estimator == 'strain_rate':
+            estimator = self.estimators['strain_rate']
+            return estimator.get_refinement_candidates(error_indicators, refinement_ratio)
+        else:
+            # 默认实现
+            if not error_indicators:
+                return []
+            
+            sorted_indicators = sorted(error_indicators, key=lambda x: x.error_value, reverse=True)
+            n_refine = int(refinement_ratio * len(sorted_indicators))
+            return [indicator.element_id for indicator in sorted_indicators[:n_refine]]
 
 
 # 工厂函数

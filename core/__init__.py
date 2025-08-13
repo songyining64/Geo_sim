@@ -25,6 +25,32 @@ from .unified_api import (
     load_config_from_template
 )
 
+from .geodynamic_simulation import (
+    # 地质动力学仿真配置
+    GeodynamicConfig,
+    
+    # 主要仿真类
+    GeodynamicSimulation,
+    
+    # 便捷函数
+    create_mantle_convection_simulation,
+    create_lithospheric_deformation_simulation
+)
+
+# 新增：完整接口演示模块
+from .complete_interface_demo import (
+    # 演示函数
+    demo_basic_simulation,
+    demo_adaptive_mesh_refinement,
+    demo_gpu_acceleration,
+    demo_visualization,
+    demo_multi_physics_coupling,
+    demo_complete_workflow,
+    
+    # 主函数
+    main as run_complete_demo
+)
+
 from .debug_tools import (
     # 配置类
     DebugConfig,
@@ -59,6 +85,21 @@ __all__ = [
     'MLSimulator',
     'create_simulator',
     'load_config_from_template',
+    
+    # 地质动力学仿真
+    'GeodynamicConfig',
+    'GeodynamicSimulation',
+    'create_mantle_convection_simulation',
+    'create_lithospheric_deformation_simulation',
+    
+    # 完整接口演示
+    'demo_basic_simulation',
+    'demo_adaptive_mesh_refinement',
+    'demo_gpu_acceleration',
+    'demo_visualization',
+    'demo_multi_physics_coupling',
+    'demo_complete_workflow',
+    'run_complete_demo',
     
     # 调试工具
     'DebugConfig',

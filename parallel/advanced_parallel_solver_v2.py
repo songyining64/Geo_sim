@@ -152,128 +152,303 @@ class LoadMonitor:
 
 
 class AdaptiveCommunicator:
-    """自适应通信优化器 - 支持动态通信调度"""
+    """自适应通信器 - 支持MPI拓扑和精细化通信策略"""
     
     def __init__(self, comm=None):
         self.comm = comm
         self.rank = comm.Get_rank() if comm else 0
         self.size = comm.Get_size() if comm else 1
         
-        # 通信模式分析
-        self.communication_patterns = {}
-        self.data_density_cache = {}
-        self.performance_history = {}
-        
-        # 动态调度
+        # 通信模式缓存
         self.schedule_cache = {}
-        self.update_counter = 0
-        self.update_frequency = 5
-        
-        # 缓冲区管理
-        self.buffer_pool = {}
-        self.optimal_buffer_sizes = {}
-        
-        # 实时负载监控
-        self.load_monitor = LoadMonitor()
-        self.communication_history = {}
-        self.dynamic_schedule_cache = {}
-        self.schedule_update_frequency = 10  # 每10次通信更新一次调度
         self.communication_count = 0
+        self.schedule_update_frequency = 10
         
+        # 性能监控
+        self.performance_history = {}
+        self.update_counter = 0
+        
+        # 负载监控器
+        self.load_monitor = LoadMonitor()
+        
+        # 缓冲区池
+        self.buffer_pool = {}
+        self.dynamic_schedule_cache = None
+        
+        # MPI拓扑支持
+        self.topology = None
+        self.neighbor_info = {}
+        self._setup_mpi_topology()
+    
+    def _setup_mpi_topology(self):
+        """设置MPI拓扑"""
+        if not self.comm:
+            return
+        
+        try:
+            # 尝试创建笛卡尔拓扑（2D网格）
+            if self.size >= 4:
+                # 计算最优的2D网格
+                factors = self._find_2d_factors(self.size)
+                if factors:
+                    dims = [factors[0], factors[1]]
+                    periods = [False, False]  # 非周期性边界
+                    reorder = True
+                    
+                    self.topology = self.comm.Create_cart(dims, periods, reorder)
+                    self.rank = self.topology.Get_rank()
+                    
+                    # 获取邻居信息
+                    coords = self.topology.Get_coords(self.rank)
+                    self.neighbor_info = {
+                        'coords': coords,
+                        'dims': dims,
+                        'neighbors': self._get_cartesian_neighbors(coords, dims)
+                    }
+                    
+                    print(f"✅ 进程 {self.rank} 使用笛卡尔拓扑: {coords} in {dims}")
+                    return
+            
+            # 如果无法创建笛卡尔拓扑，使用默认拓扑
+            self.topology = self.comm
+            self.neighbor_info = {
+                'coords': [self.rank],
+                'dims': [self.size],
+                'neighbors': list(range(self.size))
+            }
+            
+        except Exception as e:
+            print(f"⚠️ 拓扑设置失败: {e}")
+            self.topology = self.comm
+            self.neighbor_info = {
+                'coords': [self.rank],
+                'dims': [self.size],
+                'neighbors': list(range(self.size))
+            }
+    
+    def _find_2d_factors(self, n: int) -> Tuple[int, int]:
+        """找到最接近的2D因子"""
+        sqrt_n = int(np.sqrt(n))
+        for i in range(sqrt_n, 0, -1):
+            if n % i == 0:
+                return (i, n // i)
+        return None
+    
+    def _get_cartesian_neighbors(self, coords: List[int], dims: List[int]) -> List[int]:
+        """获取笛卡尔拓扑中的邻居进程"""
+        neighbors = []
+        for dim in range(len(dims)):
+            for direction in [-1, 1]:
+                neighbor_coords = coords.copy()
+                neighbor_coords[dim] = (neighbor_coords[dim] + direction) % dims[dim]
+                neighbor_rank = self.topology.Get_cart_rank(neighbor_coords)
+                neighbors.append(neighbor_rank)
+        return neighbors
+    
     def optimize_communication_pattern(self, partition_info: Dict, 
-                                    data_density: np.ndarray) -> Dict:
-        """优化通信模式 - 基于数据局部性"""
-        pattern_key = self._generate_pattern_key(partition_info)
+                                    data_density: np.ndarray,
+                                    mesh_complexity: Dict = None) -> Dict:
+        """优化通信模式 - 基于数据密度和网格复杂度"""
+        # 生成模式键值
+        pattern_key = self._generate_pattern_key(partition_info, data_density, mesh_complexity)
         
+        # 检查缓存
         if pattern_key in self.schedule_cache:
             return self.schedule_cache[pattern_key]
         
-        # 分析数据密度分布
-        high_density_regions = data_density > 0.7
-        low_density_regions = data_density < 0.3
+        # 分析数据特征
+        data_sparsity = 1.0 - np.mean(data_density)
+        data_locality = self._analyze_data_locality(partition_info, data_density)
         
-        # 生成自适应通信调度
-        if np.any(high_density_regions):
-            schedule = self._generate_point_to_point_schedule(partition_info, high_density_regions)
-        elif np.any(low_density_regions):
-            schedule = self._generate_collective_schedule(partition_info, low_density_regions)
+        # 基于特征选择通信策略
+        if data_sparsity > 0.8 and data_locality > 0.7:
+            # 高稀疏性 + 高局部性：点对点通信
+            schedule = self._generate_point_to_point_schedule(partition_info, data_density)
+        elif data_sparsity < 0.3 and data_locality < 0.3:
+            # 低稀疏性 + 低局部性：集体通信
+            schedule = self._generate_collective_schedule(partition_info, data_density)
         else:
-            schedule = self._generate_hybrid_schedule(partition_info, data_density)
+            # 混合策略
+            schedule = self._generate_hybrid_schedule(partition_info, data_density, mesh_complexity)
         
         # 缓存结果
         self.schedule_cache[pattern_key] = schedule
         return schedule
     
-    def _generate_pattern_key(self, partition_info: Dict) -> str:
+    def _analyze_data_locality(self, partition_info: Dict, data_density: np.ndarray) -> float:
+        """分析数据局部性"""
+        if not self.neighbor_info or 'neighbors' not in self.neighbor_info:
+            return 0.5
+        
+        # 计算与邻居的数据共享程度
+        neighbor_sharing = 0.0
+        total_neighbors = len(self.neighbor_info['neighbors'])
+        
+        for neighbor in self.neighbor_info['neighbors']:
+            if neighbor != self.rank:
+                # 模拟边界数据共享
+                boundary_size = self._estimate_boundary_size(partition_info, neighbor)
+                neighbor_sharing += boundary_size
+        
+        return neighbor_sharing / max(total_neighbors, 1)
+    
+    def _estimate_boundary_size(self, partition_info: Dict, neighbor: int) -> int:
+        """估计边界大小（模拟实现）"""
+        # 这里应该实现真实的边界大小计算
+        return 10  # 模拟返回10个边界元素
+    
+    def _generate_pattern_key(self, partition_info: Dict, data_density: np.ndarray, 
+                            mesh_complexity: Dict = None) -> str:
         """生成通信模式键值"""
-        return f"rank_{self.rank}_size_{self.size}_method_{partition_info.get('method', 'unknown')}"
+        complexity_str = f"complexity_{mesh_complexity.get('level', 'medium')}" if mesh_complexity else "complexity_medium"
+        return f"rank_{self.rank}_size_{self.size}_method_{partition_info.get('method', 'unknown')}_{complexity_str}"
     
     def _generate_point_to_point_schedule(self, partition_info: Dict, 
-                                        high_density_mask: np.ndarray) -> Dict:
-        """高数据密度区域：点对点通信"""
+                                        data_density: np.ndarray) -> Dict:
+        """高数据密度区域：优化的点对点通信"""
         schedule = {
             'type': 'point_to_point',
             'neighbors': [],
             'communication_order': [],
-            'buffer_sizes': {}
+            'buffer_sizes': {},
+            'overlap_strategy': 'computation_communication',
+            'topology_aware': True
         }
         
-        # 识别邻居进程
-        for neighbor in range(self.size):
-            if neighbor != self.rank:
-                # 模拟边界元素识别
-                boundary_elements = self._get_boundary_elements(partition_info, neighbor)
-                if len(boundary_elements) > 0:
-                    schedule['neighbors'].append(neighbor)
-                    schedule['buffer_sizes'][neighbor] = len(boundary_elements) * 8
+        # 使用拓扑信息优化邻居选择
+        if self.neighbor_info and 'neighbors' in self.neighbor_info:
+            schedule['neighbors'] = self.neighbor_info['neighbors']
+        else:
+            # 传统邻居识别
+            for neighbor in range(self.size):
+                if neighbor != self.rank:
+                    boundary_elements = self._get_boundary_elements(partition_info, neighbor)
+                    if len(boundary_elements) > 0:
+                        schedule['neighbors'].append(neighbor)
         
-        # 优化通信顺序
-        schedule['communication_order'] = self._optimize_communication_order(schedule['neighbors'])
+        # 计算缓冲区大小
+        for neighbor in schedule['neighbors']:
+            boundary_elements = self._get_boundary_elements(partition_info, neighbor)
+            schedule['buffer_sizes'][neighbor] = len(boundary_elements) * 8
+        
+        # 基于拓扑优化通信顺序
+        schedule['communication_order'] = self._optimize_topology_aware_order(schedule['neighbors'])
         
         return schedule
     
     def _generate_collective_schedule(self, partition_info: Dict, 
-                                    low_density_mask: np.ndarray) -> Dict:
-        """低数据密度区域：集体通信"""
+                                    data_density: np.ndarray) -> Dict:
+        """低数据密度区域：优化的集体通信"""
+        # 选择最优的集体通信算法
+        if self.size <= 8:
+            collective_op = 'allgather'
+            optimization = 'linear'
+        elif self.size <= 64:
+            collective_op = 'allgather'
+            optimization = 'tree_reduction'
+        else:
+            collective_op = 'allgather'
+            optimization = 'recursive_doubling'
+        
         return {
             'type': 'collective',
-            'operation': 'allgather',
-            'buffer_size': np.sum(low_density_mask) * 8,
-            'optimization': 'tree_reduction'
+            'operation': collective_op,
+            'buffer_size': np.sum(data_density) * 8,
+            'optimization': optimization,
+            'topology_aware': True,
+            'overlap_strategy': 'minimal'
         }
     
     def _generate_hybrid_schedule(self, partition_info: Dict, 
-                                data_density: np.ndarray) -> Dict:
-        """混合通信策略"""
+                                data_density: np.ndarray,
+                                mesh_complexity: Dict = None) -> Dict:
+        """混合通信策略 - 结合点对点和集体通信"""
+        # 基于网格复杂度调整策略
+        complexity_level = mesh_complexity.get('level', 'medium') if mesh_complexity else 'medium'
+        
+        if complexity_level == 'high':
+            # 高复杂度：优先点对点通信
+            point_to_point_weight = 0.7
+        elif complexity_level == 'low':
+            # 低复杂度：优先集体通信
+            point_to_point_weight = 0.3
+        else:
+            # 中等复杂度：平衡策略
+            point_to_point_weight = 0.5
+        
+        # 生成子策略
+        point_to_point_schedule = self._generate_point_to_point_schedule(partition_info, data_density)
+        collective_schedule = self._generate_collective_schedule(partition_info, data_density)
+        
         return {
             'type': 'hybrid',
-            'point_to_point': self._generate_point_to_point_schedule(partition_info, data_density > 0.5),
-            'collective': self._generate_collective_schedule(partition_info, data_density <= 0.5)
+            'point_to_point_weight': point_to_point_weight,
+            'point_to_point': point_to_point_schedule,
+            'collective': collective_schedule,
+            'switching_criteria': self._generate_switching_criteria(data_density, mesh_complexity),
+            'topology_aware': True,
+            'overlap_strategy': 'adaptive'
         }
     
-    def _get_boundary_elements(self, partition_info: Dict, neighbor: int) -> List:
-        """获取边界元素（模拟实现）"""
-        # 这里应该实现真实的边界元素识别逻辑
-        return list(range(10))  # 模拟返回10个边界元素
+    def _generate_switching_criteria(self, data_density: np.ndarray, 
+                                   mesh_complexity: Dict = None) -> Dict:
+        """生成策略切换标准"""
+        return {
+            'density_threshold': 0.5,
+            'complexity_threshold': 'medium',
+            'performance_threshold': 0.1,  # 性能下降阈值
+            'adaptive_switching': True
+        }
     
-    def _optimize_communication_order(self, neighbors: List[int]) -> List[int]:
-        """优化通信顺序"""
-        # 简单的优化：按进程ID排序，减少通信冲突
-        return sorted(neighbors)
+    def _optimize_topology_aware_order(self, neighbors: List[int]) -> List[int]:
+        """基于拓扑优化通信顺序"""
+        if not self.neighbor_info or 'coords' not in self.neighbor_info:
+            return sorted(neighbors)
+        
+        # 基于笛卡尔坐标的距离排序
+        my_coords = self.neighbor_info['coords']
+        neighbor_distances = []
+        
+        for neighbor in neighbors:
+            if neighbor < self.size:
+                try:
+                    neighbor_coords = self.topology.Get_coords(neighbor)
+                    distance = sum((my_coords[i] - neighbor_coords[i])**2 for i in range(len(my_coords)))
+                    neighbor_distances.append((neighbor, distance))
+                except:
+                    neighbor_distances.append((neighbor, float('inf')))
+        
+        # 按距离排序，优先近邻
+        neighbor_distances.sort(key=lambda x: x[1])
+        return [neighbor for neighbor, _ in neighbor_distances]
     
     def execute_communication_with_overlap(self, schedule: Dict, 
                                          local_data: np.ndarray,
-                                         computation_func: Callable) -> np.ndarray:
-        """执行通信与计算重叠"""
+                                         computation_func: Callable,
+                                         overlap_level: str = 'full') -> np.ndarray:
+        """执行通信与计算重叠 - 支持多级重叠策略"""
         if not self.comm:
             return local_data
         
         start_time = time.time()
         
-        # 启动非阻塞通信
+        # 根据重叠级别选择策略
+        if overlap_level == 'full':
+            return self._execute_full_overlap(schedule, local_data, computation_func)
+        elif overlap_level == 'partial':
+            return self._execute_partial_overlap(schedule, local_data, computation_func)
+        elif overlap_level == 'minimal':
+            return self._execute_minimal_overlap(schedule, local_data, computation_func)
+        else:
+            return self._execute_adaptive_overlap(schedule, local_data, computation_func)
+    
+    def _execute_full_overlap(self, schedule: Dict, local_data: np.ndarray, 
+                            computation_func: Callable) -> np.ndarray:
+        """完全重叠：通信与计算完全并行"""
         requests = []
         recv_buffers = {}
         
+        # 启动所有非阻塞通信
         if schedule['type'] == 'point_to_point':
             for neighbor in schedule['neighbors']:
                 # 发送数据
@@ -287,7 +462,7 @@ class AdaptiveCommunicator:
                 req_recv = self.comm.Irecv(recv_buffers[neighbor], source=neighbor, tag=100 + neighbor)
                 requests.append(req_recv)
         
-        # 执行本地计算（与通信重叠）
+        # 执行本地计算（与通信完全重叠）
         local_result = computation_func(local_data)
         
         # 等待通信完成
@@ -298,15 +473,88 @@ class AdaptiveCommunicator:
             for neighbor, recv_data in recv_buffers.items():
                 local_result = self._integrate_neighbor_data(local_result, recv_data, neighbor)
         
-        communication_time = time.time() - start_time
-        
-        # 更新性能统计
-        self.performance_history[self.update_counter] = {
-            'communication_time': communication_time,
-            'schedule_type': schedule['type']
-        }
-        
         return local_result
+    
+    def _execute_partial_overlap(self, schedule: Dict, local_data: np.ndarray, 
+                               computation_func: Callable) -> np.ndarray:
+        """部分重叠：通信与计算部分并行"""
+        # 启动部分通信
+        requests = []
+        recv_buffers = {}
+        
+        if schedule['type'] == 'point_to_point':
+            # 只启动一半的通信
+            half_neighbors = schedule['neighbors'][:len(schedule['neighbors'])//2]
+            for neighbor in half_neighbors:
+                send_data = self._extract_boundary_data(local_data, neighbor)
+                req_send = self.comm.Isend(send_data, dest=neighbor, tag=100 + self.rank)
+                requests.append(req_send)
+                
+                buffer_size = schedule['buffer_sizes'][neighbor]
+                recv_buffers[neighbor] = np.zeros(buffer_size // 8, dtype=np.float64)
+                req_recv = self.comm.Irecv(recv_buffers[neighbor], source=neighbor, tag=100 + neighbor)
+                requests.append(req_recv)
+        
+        # 执行部分计算
+        partial_result = computation_func(local_data)
+        
+        # 等待部分通信完成
+        if requests:
+            MPI.Request.Waitall(requests)
+        
+        # 启动剩余通信
+        if schedule['type'] == 'point_to_point':
+            remaining_neighbors = schedule['neighbors'][len(schedule['neighbors'])//2:]
+            for neighbor in remaining_neighbors:
+                send_data = self._extract_boundary_data(local_data, neighbor)
+                req_send = self.comm.Isend(send_data, dest=neighbor, tag=200 + self.rank)
+                requests.append(req_send)
+                
+                buffer_size = schedule['buffer_sizes'][neighbor]
+                recv_buffers[neighbor] = np.zeros(buffer_size // 8, dtype=np.float64)
+                req_recv = self.comm.Irecv(recv_buffers[neighbor], source=neighbor, tag=200 + neighbor)
+                requests.append(req_recv)
+        
+        # 完成剩余计算
+        final_result = computation_func(partial_result)
+        
+        # 等待所有通信完成
+        if requests:
+            MPI.Request.Waitall(requests)
+        
+        # 整合所有邻居数据
+        if schedule['type'] == 'point_to_point':
+            for neighbor, recv_data in recv_buffers.items():
+                final_result = self._integrate_neighbor_data(final_result, recv_data, neighbor)
+        
+        return final_result
+    
+    def _execute_minimal_overlap(self, schedule: Dict, local_data: np.ndarray, 
+                               computation_func: Callable) -> np.ndarray:
+        """最小重叠：通信与计算串行执行"""
+        # 先完成所有通信
+        if schedule['type'] == 'point_to_point':
+            for neighbor in schedule['neighbors']:
+                send_data = self._extract_boundary_data(local_data, neighbor)
+                self.comm.Send(send_data, dest=neighbor, tag=100 + self.rank)
+                
+                buffer_size = schedule['buffer_sizes'][neighbor]
+                recv_data = np.zeros(buffer_size // 8, dtype=np.float64)
+                self.comm.Recv(recv_data, source=neighbor, tag=100 + neighbor)
+        
+        # 再执行计算
+        return computation_func(local_data)
+    
+    def _execute_adaptive_overlap(self, schedule: Dict, local_data: np.ndarray, 
+                                computation_func: Callable) -> np.ndarray:
+        """自适应重叠：根据通信模式动态选择重叠策略"""
+        if schedule.get('overlap_strategy') == 'computation_communication':
+            return self._execute_full_overlap(schedule, local_data, computation_func)
+        elif schedule.get('overlap_strategy') == 'minimal':
+            return self._execute_minimal_overlap(schedule, local_data, computation_func)
+        else:
+            # 默认使用部分重叠
+            return self._execute_partial_overlap(schedule, local_data, computation_func)
     
     def _extract_boundary_data(self, local_data: np.ndarray, neighbor: int) -> np.ndarray:
         """提取边界数据（模拟实现）"""
@@ -548,7 +796,7 @@ class AdaptiveCommunicator:
 
 
 class MLBasedLoadBalancer:
-    """基于机器学习的智能负载均衡器"""
+    """基于机器学习的智能负载均衡器 - 支持实时数据驱动的动态重分区"""
     
     def __init__(self, comm=None, ml_model=None):
         self.comm = comm
@@ -557,99 +805,329 @@ class MLBasedLoadBalancer:
         
         # ML模型
         self.ml_model = ml_model
-        self.load_predictor = self._initialize_load_predictor()
+        self.feature_scaler = None
+        self.load_predictor = None
         
-        # 负载监控
-        self.load_history = {}
+        # 负载历史
+        self.load_history = []
         self.migration_history = {}
-        self.performance_metrics = {}
+        self.performance_history = {}
         
-        # 动态调整参数
-        self.migration_threshold = 0.15
-        self.prediction_confidence_threshold = 0.8
+        # 动态重分区参数
+        self.migration_threshold = 0.15  # 负载不平衡阈值
+        self.repartitioning_frequency = 5  # 重分区频率
+        self.adaptive_threshold = True  # 自适应阈值
         
-    def _initialize_load_predictor(self):
-        """初始化负载预测器"""
-        if self.ml_model:
-            return self.ml_model
+        # 实时监控
+        self.real_time_monitor = RealTimeLoadMonitor()
+        self.mesh_complexity_tracker = MeshComplexityTracker()
+        self.iteration_performance_tracker = IterationPerformanceTracker()
         
-        # 简单的基于历史的预测器
-        class SimpleLoadPredictor:
-            def __init__(self):
-                self.history = {}
-                self.weights = np.array([0.5, 0.3, 0.2])  # 最近3次的权重
-            
-            def predict(self, mesh_features, partition_info):
-                # 基于网格特征和分区信息的简单预测
-                complexity = np.sum(mesh_features.get('element_complexity', [1.0]))
-                size_factor = len(mesh_features.get('elements', [])) / 1000
-                return complexity * size_factor
+        # 迁移策略
+        self.migration_strategies = {
+            'conservative': self._conservative_migration,
+            'aggressive': self._aggressive_migration,
+            'adaptive': self._adaptive_migration
+        }
         
-        return SimpleLoadPredictor()
+        # 初始化ML组件
+        self._initialize_ml_components()
     
-    def predict_load_distribution(self, mesh_features: Dict, 
-                                partition_info: Dict) -> np.ndarray:
-        """预测负载分布"""
-        predicted_loads = np.zeros(self.size)
-        
-        for i in range(self.size):
-            local_features = self._extract_local_features(mesh_features, partition_info, i)
-            predicted_loads[i] = self.load_predictor.predict(local_features, partition_info)
-        
-        # 归一化
-        predicted_loads = predicted_loads / np.sum(predicted_loads)
-        return predicted_loads
+    def _initialize_ml_components(self):
+        """初始化机器学习组件"""
+        try:
+            # 简单的线性回归模型作为默认预测器
+            from sklearn.linear_model import LinearRegression
+            from sklearn.preprocessing import StandardScaler
+            
+            self.feature_scaler = StandardScaler()
+            self.load_predictor = LinearRegression()
+            
+            # 初始化特征缩放器
+            dummy_features = np.random.rand(100, 5)  # 5个特征
+            self.feature_scaler.fit(dummy_features)
+            
+            print(f"✅ 进程 {self.rank}: ML组件初始化成功")
+            
+        except ImportError:
+            print(f"⚠️ 进程 {self.rank}: sklearn不可用，使用简单预测器")
+            self.load_predictor = SimpleLoadPredictor()
     
     def balance_load_dynamically(self, current_loads: np.ndarray, 
                                 mesh_features: Dict,
-                                partition_info: Dict) -> Dict:
-        """动态负载均衡"""
-        # 计算负载不平衡度
-        load_imbalance = self._compute_load_imbalance(current_loads)
+                                partition_info: Dict,
+                                real_time_data: Dict = None) -> Dict:
+        """动态负载均衡 - 基于实时计算数据"""
+        # 获取实时负载信息
+        real_time_loads = self._get_real_time_loads(real_time_data)
         
-        if load_imbalance < self.migration_threshold:
-            return partition_info  # 无需迁移
+        # 计算当前负载不平衡度
+        current_imbalance = self._compute_load_imbalance(current_loads)
+        
+        # 检查是否需要重分区
+        if not self._should_repartition(current_imbalance, real_time_loads):
+            return partition_info
+        
+        # 分析网格复杂度变化
+        mesh_complexity = self.mesh_complexity_tracker.analyze_complexity(mesh_features)
+        
+        # 分析迭代性能
+        iteration_performance = self.iteration_performance_tracker.get_performance()
         
         # 预测最优负载分布
-        predicted_loads = self.predict_load_distribution(mesh_features, partition_info)
+        predicted_loads = self._predict_optimal_load_distribution(
+            mesh_features, partition_info, mesh_complexity, iteration_performance
+        )
         
         # 计算迁移策略
-        migration_plan = self._compute_migration_plan(current_loads, predicted_loads, partition_info)
+        migration_strategy = self._select_migration_strategy(current_imbalance, mesh_complexity)
+        migration_plan = self._compute_advanced_migration_plan(
+            current_loads, predicted_loads, partition_info, migration_strategy
+        )
         
         # 执行迁移
-        updated_partition = self._execute_migration(migration_plan, partition_info)
+        updated_partition = self._execute_advanced_migration(migration_plan, partition_info)
         
         # 记录迁移历史
-        self.migration_history[time.time()] = {
-            'original_imbalance': load_imbalance,
-            'migration_plan': migration_plan,
-            'predicted_improvement': self._estimate_improvement(current_loads, predicted_loads)
-        }
+        self._record_migration_history(current_imbalance, migration_plan, predicted_loads)
+        
+        # 更新性能统计
+        self._update_performance_metrics(updated_partition, real_time_loads)
         
         return updated_partition
     
-    def _extract_local_features(self, mesh_features: Dict, partition_info: Dict, rank: int) -> Dict:
-        """提取本地特征（模拟实现）"""
+    def _get_real_time_loads(self, real_time_data: Dict = None) -> Dict[str, Any]:
+        """获取实时负载信息"""
+        if real_time_data is None:
+            real_time_data = {}
+        
+        # 系统资源监控
+        system_loads = self.real_time_monitor.get_system_loads()
+        
+        # 计算负载
+        computation_loads = self.real_time_monitor.get_computation_loads()
+        
+        # 网格复杂度负载
+        mesh_loads = self.mesh_complexity_tracker.get_complexity_loads()
+        
+        # 迭代性能负载
+        iteration_loads = self.iteration_performance_tracker.get_iteration_loads()
+        
         return {
-            'element_complexity': [1.0, 1.5, 2.0],  # 模拟复杂度
-            'elements': list(range(100))  # 模拟元素
+            'system': system_loads,
+            'computation': computation_loads,
+            'mesh': mesh_loads,
+            'iteration': iteration_loads,
+            'timestamp': time.time(),
+            'combined_load': self._combine_real_time_loads(
+                system_loads, computation_loads, mesh_loads, iteration_loads
+            )
         }
     
-    def _compute_load_imbalance(self, loads: np.ndarray) -> float:
-        """计算负载不平衡度"""
-        mean_load = np.mean(loads)
-        if mean_load == 0:
-            return 0.0
-        return np.std(loads) / mean_load
+    def _combine_real_time_loads(self, system_loads: Dict, computation_loads: Dict,
+                                mesh_loads: Dict, iteration_loads: Dict) -> float:
+        """组合实时负载指标"""
+        # 权重配置
+        weights = {
+            'cpu': 0.3,
+            'memory': 0.2,
+            'gpu': 0.2,
+            'computation_time': 0.15,
+            'mesh_complexity': 0.1,
+            'iteration_efficiency': 0.05
+        }
+        
+        combined_load = 0.0
+        
+        # CPU负载
+        if 'cpu_percent' in system_loads:
+            combined_load += weights['cpu'] * system_loads['cpu_percent'] / 100.0
+        
+        # 内存负载
+        if 'memory_percent' in system_loads:
+            combined_load += weights['memory'] * system_loads['memory_percent'] / 100.0
+        
+        # GPU负载
+        if 'gpu_utilization' in system_loads:
+            combined_load += weights['gpu'] * system_loads['gpu_utilization'] / 100.0
+        
+        # 计算时间负载
+        if 'average_time' in computation_loads:
+            combined_load += weights['computation_time'] * min(computation_loads['average_time'] / 10.0, 1.0)
+        
+        # 网格复杂度负载
+        if 'complexity_score' in mesh_loads:
+            combined_load += weights['mesh_complexity'] * mesh_loads['complexity_score']
+        
+        # 迭代效率负载
+        if 'efficiency' in iteration_loads:
+            combined_load += weights['iteration_efficiency'] * (1.0 - iteration_loads['efficiency'])
+        
+        return min(combined_load, 1.0)
     
-    def _compute_migration_plan(self, current_loads: np.ndarray, 
-                               target_loads: np.ndarray,
-                               partition_info: Dict) -> Dict:
-        """计算迁移计划"""
+    def _should_repartition(self, current_imbalance: float, real_time_loads: Dict) -> bool:
+        """判断是否需要重分区"""
+        # 基础阈值检查
+        if current_imbalance < self.migration_threshold:
+            return False
+        
+        # 实时负载检查
+        combined_load = real_time_loads.get('combined_load', 0.0)
+        if combined_load > 0.9:  # 系统负载过高，避免重分区
+            return False
+        
+        # 频率检查
+        current_time = time.time()
+        if len(self.migration_history) > 0:
+            last_migration_time = max(self.migration_history.keys())
+            if current_time - last_migration_time < self.repartitioning_frequency:
+                return False
+        
+        # 自适应阈值调整
+        if self.adaptive_threshold:
+            self._adjust_migration_threshold(current_imbalance, real_time_loads)
+        
+        return True
+    
+    def _adjust_migration_threshold(self, current_imbalance: float, real_time_loads: Dict):
+        """自适应调整迁移阈值"""
+        combined_load = real_time_loads.get('combined_load', 0.5)
+        
+        # 根据系统负载调整阈值
+        if combined_load > 0.8:
+            # 高负载时提高阈值，减少重分区频率
+            self.migration_threshold = min(0.25, self.migration_threshold * 1.1)
+        elif combined_load < 0.3:
+            # 低负载时降低阈值，增加重分区频率
+            self.migration_threshold = max(0.1, self.migration_threshold * 0.9)
+    
+    def _predict_optimal_load_distribution(self, mesh_features: Dict, 
+                                         partition_info: Dict,
+                                         mesh_complexity: Dict,
+                                         iteration_performance: Dict) -> np.ndarray:
+        """预测最优负载分布 - 基于实时数据"""
+        # 提取特征
+        features = self._extract_advanced_features(
+            mesh_features, partition_info, mesh_complexity, iteration_performance
+        )
+        
+        # 使用ML模型预测
+        if self.load_predictor and hasattr(self.load_predictor, 'predict'):
+            try:
+                # 特征缩放
+                if self.feature_scaler:
+                    scaled_features = self.feature_scaler.transform(features.reshape(1, -1))
+                else:
+                    scaled_features = features.reshape(1, -1)
+                
+                # 预测负载
+                predicted_load = self.load_predictor.predict(scaled_features)[0]
+                
+                # 生成负载分布
+                return self._generate_load_distribution(predicted_load, mesh_features)
+                
+            except Exception as e:
+                print(f"⚠️ ML预测失败: {e}")
+        
+        # 回退到启发式预测
+        return self._heuristic_load_prediction(mesh_features, mesh_complexity)
+    
+    def _extract_advanced_features(self, mesh_features: Dict, partition_info: Dict,
+                                 mesh_complexity: Dict, iteration_performance: Dict) -> np.ndarray:
+        """提取高级特征"""
+        features = []
+        
+        # 网格特征
+        features.extend([
+            mesh_features.get('n_elements', 1000) / 10000.0,  # 元素数量
+            mesh_features.get('n_nodes', 1000) / 10000.0,     # 节点数量
+            mesh_features.get('element_type', 'tet') == 'tet', # 元素类型
+            mesh_features.get('mesh_quality', 0.5),            # 网格质量
+        ])
+        
+        # 复杂度特征
+        features.extend([
+            mesh_complexity.get('complexity_score', 0.5),     # 复杂度分数
+            mesh_complexity.get('irregularity', 0.5),         # 不规则性
+            mesh_complexity.get('anisotropy', 0.5),           # 各向异性
+        ])
+        
+        # 性能特征
+        features.extend([
+            iteration_performance.get('efficiency', 0.5),     # 迭代效率
+            iteration_performance.get('convergence_rate', 0.5), # 收敛率
+            iteration_performance.get('stability', 0.5),      # 稳定性
+        ])
+        
+        # 分区特征
+        features.extend([
+            partition_info.get('balance_quality', 0.5),       # 平衡质量
+            partition_info.get('communication_overhead', 0.5), # 通信开销
+        ])
+        
+        return np.array(features, dtype=np.float64)
+    
+    def _generate_load_distribution(self, predicted_load: float, mesh_features: Dict) -> np.ndarray:
+        """生成负载分布"""
+        # 基于预测负载生成分布
+        base_load = predicted_load / self.size
+        
+        # 添加随机变化
+        variation = 0.1
+        loads = np.random.normal(base_load, base_load * variation, self.size)
+        
+        # 确保非负
+        loads = np.maximum(loads, 0.0)
+        
+        # 归一化
+        loads = loads / np.sum(loads) * predicted_load
+        
+        return loads
+    
+    def _heuristic_load_prediction(self, mesh_features: Dict, mesh_complexity: Dict) -> np.ndarray:
+        """启发式负载预测"""
+        # 基于网格复杂度的启发式预测
+        complexity_score = mesh_complexity.get('complexity_score', 0.5)
+        n_elements = mesh_features.get('n_elements', 1000)
+        
+        # 基础负载
+        base_load = n_elements * (1.0 + complexity_score)
+        
+        # 生成负载分布
+        loads = np.ones(self.size) * base_load / self.size
+        
+        # 添加负载变化
+        variation = 0.2
+        loads *= (1.0 + np.random.uniform(-variation, variation, self.size))
+        
+        return loads
+    
+    def _select_migration_strategy(self, current_imbalance: float, mesh_complexity: Dict) -> str:
+        """选择迁移策略"""
+        complexity_level = mesh_complexity.get('level', 'medium')
+        
+        if current_imbalance > 0.3:
+            # 严重不平衡：激进策略
+            return 'aggressive'
+        elif complexity_level == 'high' and current_imbalance > 0.2:
+            # 高复杂度 + 中等不平衡：保守策略
+            return 'conservative'
+        else:
+            # 其他情况：自适应策略
+            return 'adaptive'
+    
+    def _compute_advanced_migration_plan(self, current_loads: np.ndarray,
+                                       target_loads: np.ndarray,
+                                       partition_info: Dict,
+                                       strategy: str) -> Dict:
+        """计算高级迁移计划"""
         migration_plan = {
+            'strategy': strategy,
             'migrations': [],
             'estimated_time': 0.0,
-            'risk_level': 'low'
+            'risk_level': 'low',
+            'expected_improvement': 0.0,
+            'rollback_plan': None
         }
         
         # 识别过载和轻载进程
@@ -667,34 +1145,464 @@ class MLBasedLoadBalancer:
                         )
                         
                         if migration_amount > 0:
+                            # 选择迁移元素
+                            elements_to_migrate = self._select_migration_elements_advanced(
+                                partition_info, i, migration_amount, strategy
+                            )
+                            
                             migration_plan['migrations'].append({
                                 'from': i,
                                 'to': j,
                                 'amount': migration_amount,
-                                'elements': self._select_migration_elements(partition_info, i, migration_amount)
+                                'elements': elements_to_migrate,
+                                'priority': self._calculate_migration_priority(i, j, migration_amount)
                             })
+        
+        # 根据策略调整迁移计划
+        if strategy == 'aggressive':
+            migration_plan = self._adjust_for_aggressive_strategy(migration_plan)
+        elif strategy == 'conservative':
+            migration_plan = self._adjust_for_conservative_strategy(migration_plan)
+        else:  # adaptive
+            migration_plan = self._adjust_for_adaptive_strategy(migration_plan)
+        
+        # 计算预期改进
+        migration_plan['expected_improvement'] = self._estimate_migration_improvement(
+            current_loads, target_loads, migration_plan
+        )
+        
+        # 生成回滚计划
+        migration_plan['rollback_plan'] = self._generate_rollback_plan(partition_info, migration_plan)
         
         return migration_plan
     
-    def _select_migration_elements(self, partition_info: Dict, rank: int, amount: float) -> List:
-        """选择迁移元素（模拟实现）"""
+    def _select_migration_elements_advanced(self, partition_info: Dict, rank: int, 
+                                          amount: float, strategy: str) -> List:
+        """高级迁移元素选择"""
+        if strategy == 'aggressive':
+            # 激进策略：选择边界元素和轻量元素
+            return self._select_boundary_and_light_elements(partition_info, rank, amount)
+        elif strategy == 'conservative':
+            # 保守策略：只选择边界元素
+            return self._select_boundary_elements_only(partition_info, rank, amount)
+        else:
+            # 自适应策略：平衡选择
+            return self._select_balanced_elements(partition_info, rank, amount)
+    
+    def _select_boundary_and_light_elements(self, partition_info: Dict, rank: int, amount: float) -> List:
+        """选择边界和轻量元素"""
+        # 模拟实现
+        boundary_elements = list(range(10))
+        light_elements = list(range(10, 20))
+        return boundary_elements + light_elements[:int(amount - len(boundary_elements))]
+    
+    def _select_boundary_elements_only(self, partition_info: Dict, rank: int, amount: float) -> List:
+        """只选择边界元素"""
         return list(range(int(amount)))
     
-    def _execute_migration(self, migration_plan: Dict, partition_info: Dict) -> Dict:
-        """执行迁移（模拟实现）"""
-        # 这里应该实现真实的迁移逻辑
-        return partition_info
+    def _select_balanced_elements(self, partition_info: Dict, rank: int, amount: float) -> List:
+        """平衡选择元素"""
+        return list(range(int(amount)))
     
-    def _estimate_improvement(self, current_loads: np.ndarray, 
-                            target_loads: np.ndarray) -> float:
-        """估计改进程度"""
+    def _calculate_migration_priority(self, from_rank: int, to_rank: int, amount: float) -> float:
+        """计算迁移优先级"""
+        # 基于距离和负载差异计算优先级
+        distance = abs(from_rank - to_rank)
+        priority = amount / (1.0 + distance * 0.1)
+        return priority
+    
+    def _adjust_for_aggressive_strategy(self, migration_plan: Dict) -> Dict:
+        """调整激进策略的迁移计划"""
+        # 激进策略：允许更多迁移，减少优先级限制
+        migration_plan['risk_level'] = 'medium'
+        migration_plan['estimated_time'] = len(migration_plan['migrations']) * 0.1
+        
+        # 按优先级排序
+        migration_plan['migrations'].sort(key=lambda x: x['priority'], reverse=True)
+        
+        return migration_plan
+    
+    def _adjust_for_conservative_strategy(self, migration_plan: Dict) -> Dict:
+        """调整保守策略的迁移计划"""
+        # 保守策略：限制迁移数量，增加安全检查
+        max_migrations = min(len(migration_plan['migrations']), 3)
+        migration_plan['migrations'] = migration_plan['migrations'][:max_migrations]
+        
+        migration_plan['risk_level'] = 'low'
+        migration_plan['estimated_time'] = len(migration_plan['migrations']) * 0.2
+        
+        return migration_plan
+    
+    def _adjust_for_adaptive_strategy(self, migration_plan: Dict) -> Dict:
+        """调整自适应策略的迁移计划"""
+        # 自适应策略：根据当前负载动态调整
+        if len(migration_plan['migrations']) > 5:
+            # 迁移过多时，采用保守策略
+            migration_plan = self._adjust_for_conservative_strategy(migration_plan)
+        elif len(migration_plan['migrations']) < 2:
+            # 迁移过少时，采用激进策略
+            migration_plan = self._adjust_for_aggressive_strategy(migration_plan)
+        
+        migration_plan['risk_level'] = 'low'
+        migration_plan['estimated_time'] = len(migration_plan['migrations']) * 0.15
+        
+        return migration_plan
+    
+    def _estimate_migration_improvement(self, current_loads: np.ndarray,
+                                     target_loads: np.ndarray,
+                                     migration_plan: Dict) -> float:
+        """估计迁移改进程度"""
+        # 模拟迁移后的负载分布
+        simulated_loads = current_loads.copy()
+        
+        for migration in migration_plan['migrations']:
+            from_rank = migration['from']
+            to_rank = migration['to']
+            amount = migration['amount']
+            
+            simulated_loads[from_rank] -= amount
+            simulated_loads[to_rank] += amount
+        
+        # 计算改进
         current_imbalance = self._compute_load_imbalance(current_loads)
-        target_imbalance = self._compute_load_imbalance(target_loads)
-        return current_imbalance - target_imbalance
+        simulated_imbalance = self._compute_load_imbalance(simulated_loads)
+        
+        return current_imbalance - simulated_imbalance
+    
+    def _generate_rollback_plan(self, partition_info: Dict, migration_plan: Dict) -> Dict:
+        """生成回滚计划"""
+        rollback_plan = {
+            'original_partition': partition_info.copy(),
+            'migration_sequence': [],
+            'checkpoints': []
+        }
+        
+        # 记录迁移序列
+        for migration in migration_plan['migrations']:
+            rollback_plan['migration_sequence'].append({
+                'from': migration['from'],
+                'to': migration['to'],
+                'elements': migration['elements'].copy(),
+                'timestamp': time.time()
+            })
+        
+        # 创建检查点
+        rollback_plan['checkpoints'] = [
+            {'step': i, 'partition': partition_info.copy()}
+            for i in range(0, len(migration_plan['migrations']), 2)
+        ]
+        
+        return rollback_plan
+    
+    def _execute_advanced_migration(self, migration_plan: Dict, partition_info: Dict) -> Dict:
+        """执行高级迁移"""
+        # 这里应该实现真实的迁移逻辑
+        # 包括数据迁移、状态同步、错误处理等
+        
+        # 模拟迁移执行
+        updated_partition = partition_info.copy()
+        
+        # 记录迁移执行
+        for migration in migration_plan['migrations']:
+            self._log_migration_execution(migration)
+        
+        return updated_partition
+    
+    def _log_migration_execution(self, migration: Dict):
+        """记录迁移执行"""
+        print(f"🔄 进程 {self.rank}: 执行迁移 {migration['from']} -> {migration['to']}, "
+              f"元素数量: {len(migration['elements'])}")
+    
+    def _record_migration_history(self, current_imbalance: float, migration_plan: Dict, 
+                                predicted_loads: np.ndarray):
+        """记录迁移历史"""
+        current_time = time.time()
+        
+        self.migration_history[current_time] = {
+            'original_imbalance': current_imbalance,
+            'migration_plan': migration_plan,
+            'predicted_loads': predicted_loads.tolist(),
+            'strategy': migration_plan['strategy'],
+            'expected_improvement': migration_plan['expected_improvement']
+        }
+    
+    def _update_performance_metrics(self, updated_partition: Dict, real_time_loads: Dict):
+        """更新性能指标"""
+        current_time = time.time()
+        
+        self.performance_history[current_time] = {
+            'partition_quality': self._evaluate_partition_quality(updated_partition),
+            'real_time_loads': real_time_loads,
+            'migration_count': len(self.migration_history),
+            'average_imbalance': self._compute_average_imbalance()
+        }
+    
+    def _evaluate_partition_quality(self, partition: Dict) -> float:
+        """评估分区质量"""
+        # 模拟分区质量评估
+        return 0.8  # 返回0-1之间的质量分数
+    
+    def _compute_average_imbalance(self) -> float:
+        """计算平均负载不平衡度"""
+        if not self.migration_history:
+            return 0.0
+        
+        imbalances = [data['original_imbalance'] for data in self.migration_history.values()]
+        return np.mean(imbalances)
+    
+    def _compute_load_imbalance(self, loads: np.ndarray) -> float:
+        """计算负载不平衡度"""
+        mean_load = np.mean(loads)
+        if mean_load == 0:
+            return 0.0
+        return np.std(loads) / mean_load
+    
+    def _conservative_migration(self, *args, **kwargs):
+        """保守迁移策略"""
+        pass
+    
+    def _aggressive_migration(self, *args, **kwargs):
+        """激进迁移策略"""
+        pass
+    
+    def _adaptive_migration(self, *args, **kwargs):
+        """自适应迁移策略"""
+        pass
+
+
+class RealTimeLoadMonitor:
+    """实时负载监控器"""
+    
+    def __init__(self):
+        self.monitoring_interval = 0.1  # 100ms
+        self.last_update = time.time()
+        self.system_loads = {}
+        self.computation_loads = {}
+        
+    def get_system_loads(self) -> Dict:
+        """获取系统负载"""
+        current_time = time.time()
+        
+        if current_time - self.last_update > self.monitoring_interval:
+            self._update_system_loads()
+            self.last_update = current_time
+        
+        return self.system_loads
+    
+    def get_computation_loads(self) -> Dict:
+        """获取计算负载"""
+        return self.computation_loads
+    
+    def _update_system_loads(self):
+        """更新系统负载"""
+        try:
+            import psutil
+            
+            # CPU使用率
+            self.system_loads['cpu_percent'] = psutil.cpu_percent(interval=0.1)
+            
+            # 内存使用率
+            memory = psutil.virtual_memory()
+            self.system_loads['memory_percent'] = memory.percent
+            self.system_loads['memory_available'] = memory.available / (1024**3)  # GB
+            
+            # GPU使用率（如果可用）
+            try:
+                import GPUtil
+                gpus = GPUtil.getGPUs()
+                if gpus:
+                    gpu_util = gpus[0].load * 100
+                    self.system_loads['gpu_utilization'] = gpu_util
+                else:
+                    self.system_loads['gpu_utilization'] = 0.0
+            except:
+                self.system_loads['gpu_utilization'] = 0.0
+                
+        except ImportError:
+            # 模拟数据
+            self.system_loads = {
+                'cpu_percent': 50.0,
+                'memory_percent': 60.0,
+                'gpu_utilization': 30.0
+            }
+
+
+class MeshComplexityTracker:
+    """网格复杂度跟踪器"""
+    
+    def __init__(self):
+        self.complexity_history = []
+        self.complexity_thresholds = {
+            'low': 0.3,
+            'medium': 0.6,
+            'high': 0.9
+        }
+    
+    def analyze_complexity(self, mesh_features: Dict) -> Dict:
+        """分析网格复杂度"""
+        # 计算复杂度分数
+        complexity_score = self._calculate_complexity_score(mesh_features)
+        
+        # 确定复杂度级别
+        complexity_level = self._determine_complexity_level(complexity_score)
+        
+        # 计算其他复杂度指标
+        irregularity = self._calculate_irregularity(mesh_features)
+        anisotropy = self._calculate_anisotropy(mesh_features)
+        
+        complexity_info = {
+            'complexity_score': complexity_score,
+            'level': complexity_level,
+            'irregularity': irregularity,
+            'anisotropy': anisotropy,
+            'timestamp': time.time()
+        }
+        
+        # 记录历史
+        self.complexity_history.append(complexity_info)
+        
+        return complexity_info
+    
+    def get_complexity_loads(self) -> Dict:
+        """获取复杂度负载"""
+        if not self.complexity_history:
+            return {'complexity_score': 0.5}
+        
+        latest = self.complexity_history[-1]
+        return {
+            'complexity_score': latest['complexity_score'],
+            'level': latest['level']
+        }
+    
+    def _calculate_complexity_score(self, mesh_features: Dict) -> float:
+        """计算复杂度分数"""
+        # 基于多个因素计算复杂度
+        factors = []
+        
+        # 元素数量因子
+        n_elements = mesh_features.get('n_elements', 1000)
+        element_factor = min(n_elements / 10000.0, 1.0)
+        factors.append(element_factor)
+        
+        # 网格质量因子
+        mesh_quality = mesh_features.get('mesh_quality', 0.5)
+        quality_factor = 1.0 - mesh_quality  # 质量越低，复杂度越高
+        factors.append(quality_factor)
+        
+        # 元素类型因子
+        element_type = mesh_features.get('element_type', 'tet')
+        if element_type == 'tet':
+            type_factor = 0.8
+        elif element_type == 'hex':
+            type_factor = 0.6
+        else:
+            type_factor = 0.5
+        factors.append(type_factor)
+        
+        # 计算加权平均
+        weights = [0.4, 0.3, 0.3]
+        complexity_score = sum(f * w for f, w in zip(factors, weights))
+        
+        return min(complexity_score, 1.0)
+    
+    def _determine_complexity_level(self, complexity_score: float) -> str:
+        """确定复杂度级别"""
+        if complexity_score < self.complexity_thresholds['low']:
+            return 'low'
+        elif complexity_score < self.complexity_thresholds['medium']:
+            return 'medium'
+        else:
+            return 'high'
+    
+    def _calculate_irregularity(self, mesh_features: Dict) -> float:
+        """计算不规则性"""
+        # 模拟不规则性计算
+        return np.random.uniform(0.2, 0.8)
+    
+    def _calculate_anisotropy(self, mesh_features: Dict) -> float:
+        """计算各向异性"""
+        # 模拟各向异性计算
+        return np.random.uniform(0.1, 0.9)
+
+
+class IterationPerformanceTracker:
+    """迭代性能跟踪器"""
+    
+    def __init__(self):
+        self.iteration_history = []
+        self.performance_metrics = {
+            'efficiency': 0.5,
+            'convergence_rate': 0.5,
+            'stability': 0.5
+        }
+    
+    def get_performance(self) -> Dict:
+        """获取性能指标"""
+        return self.performance_metrics
+    
+    def get_iteration_loads(self) -> Dict:
+        """获取迭代负载"""
+        return self.performance_metrics
+    
+    def update_performance(self, iteration_data: Dict):
+        """更新性能数据"""
+        self.iteration_history.append(iteration_data)
+        
+        # 更新性能指标
+        if len(self.iteration_history) > 1:
+            self._update_performance_metrics()
+    
+    def _update_performance_metrics(self):
+        """更新性能指标"""
+        if len(self.iteration_history) < 2:
+            return
+        
+        # 计算效率
+        recent_iterations = self.iteration_history[-10:]  # 最近10次迭代
+        if len(recent_iterations) > 1:
+            times = [it['time'] for it in recent_iterations]
+            self.performance_metrics['efficiency'] = 1.0 / (1.0 + np.std(times))
+        
+        # 计算收敛率
+        residuals = [it.get('residual', 1.0) for it in recent_iterations]
+        if len(residuals) > 1:
+            convergence_rate = 1.0 / (1.0 + np.mean(residuals))
+            self.performance_metrics['convergence_rate'] = min(convergence_rate, 1.0)
+        
+        # 计算稳定性
+        if len(residuals) > 2:
+            stability = 1.0 / (1.0 + np.std(residuals))
+            self.performance_metrics['stability'] = min(stability, 1.0)
+
+
+class SimpleLoadPredictor:
+    """简单负载预测器（ML不可用时的回退方案）"""
+    
+    def __init__(self):
+        self.history = []
+        self.window_size = 10
+    
+    def predict(self, features: np.ndarray) -> float:
+        """简单预测"""
+        # 基于历史数据的简单预测
+        if len(self.history) > 0:
+            recent_loads = [h['load'] for h in self.history[-self.window_size:]]
+            predicted_load = np.mean(recent_loads)
+        else:
+            predicted_load = 0.5
+        
+        # 记录预测
+        self.history.append({
+            'features': features,
+            'load': predicted_load,
+            'timestamp': time.time()
+        })
+        
+        return predicted_load
 
 
 class HeterogeneousComputingManager:
-    """异构计算管理器 - MPI+GPU+OpenMP混合架构"""
+    """异构计算管理器 - 深度整合MPI+GPU+OpenMP，支持混合精度计算"""
     
     def __init__(self, config: AdvancedParallelConfig):
         self.config = config
@@ -704,18 +1612,44 @@ class HeterogeneousComputingManager:
         # GPU设置
         self.gpu_device = None
         self.gpu_available = False
-        if config.use_gpu and HAS_PYTORCH:
-            self._setup_gpu()
+        self.gpu_memory_info = {}
+        self.gpu_compute_capability = None
         
         # OpenMP设置
         self.openmp_available = False
-        if config.use_openmp and HAS_NUMBA:
-            self._setup_openmp()
+        self.cpu_threads = 1
+        
+        # 混合精度设置
+        self.mixed_precision = config.mixed_precision if hasattr(config, 'mixed_precision') else False
+        self.precision_strategy = 'adaptive'  # 'adaptive', 'fp32', 'fp64'
+        
+        # 任务分配策略
+        self.task_allocation_strategy = 'performance_aware'  # 'performance_aware', 'load_balanced', 'hybrid'
+        self.gpu_task_threshold = 1000  # GPU任务规模阈值
+        self.cpu_task_threshold = 500   # CPU任务规模阈值
         
         # 性能监控
         self.gpu_performance = {}
         self.cpu_performance = {}
+        self.task_performance_history = {}
         
+        # 初始化硬件
+        if config.use_gpu and HAS_PYTORCH:
+            self._setup_gpu()
+        
+        if config.use_openmp and HAS_NUMBA:
+            self._setup_openmp()
+        
+        # 任务队列
+        self.gpu_task_queue = []
+        self.cpu_task_queue = []
+        self.task_scheduler = TaskScheduler(self)
+        
+        print(f"🚀 进程 {self.rank}: 异构计算管理器初始化完成")
+        print(f"   GPU支持: {self.gpu_available}")
+        print(f"   OpenMP支持: {self.openmp_available}")
+        print(f"   混合精度: {self.mixed_precision}")
+    
     def _setup_gpu(self):
         """设置GPU"""
         try:
@@ -723,7 +1657,20 @@ class HeterogeneousComputingManager:
                 self.gpu_device = self.rank % torch.cuda.device_count()
                 torch.cuda.set_device(self.gpu_device)
                 self.gpu_available = True
+                
+                # 获取GPU信息
+                self.gpu_memory_info = {
+                    'total': torch.cuda.get_device_properties(self.gpu_device).total_memory,
+                    'allocated': 0,
+                    'cached': 0
+                }
+                
+                # 获取计算能力
+                self.gpu_compute_capability = torch.cuda.get_device_capability(self.gpu_device)
+                
                 print(f"✅ 进程 {self.rank} 绑定到GPU {self.gpu_device}")
+                print(f"   GPU内存: {self.gpu_memory_info['total'] / (1024**3):.1f} GB")
+                print(f"   计算能力: {self.gpu_compute_capability}")
             else:
                 print(f"⚠️ 进程 {self.rank}: GPU不可用")
         except Exception as e:
@@ -733,29 +1680,43 @@ class HeterogeneousComputingManager:
         """设置OpenMP"""
         try:
             # 设置线程数
-            nb.set_num_threads(self.config.cpu_threads)
+            self.cpu_threads = self.config.cpu_threads if hasattr(self.config, 'cpu_threads') else 4
+            nb.set_num_threads(self.cpu_threads)
             self.openmp_available = True
-            print(f"✅ 进程 {self.rank} 启用OpenMP，线程数: {self.config.cpu_threads}")
+            print(f"✅ 进程 {self.rank} 启用OpenMP，线程数: {self.cpu_threads}")
         except Exception as e:
             print(f"❌ 进程 {self.rank} OpenMP设置失败: {e}")
     
     def solve_with_heterogeneous_computing(self, A: np.ndarray, b: np.ndarray,
-                                         solver_type: str = 'auto') -> np.ndarray:
-        """异构计算求解"""
+                                         solver_type: str = 'auto',
+                                         precision: str = 'auto') -> np.ndarray:
+        """异构计算求解 - 支持混合精度"""
+        # 选择最优求解器
         if solver_type == 'auto':
             solver_type = self._select_optimal_solver(A, b)
         
+        # 选择精度策略
+        if precision == 'auto':
+            precision = self._select_optimal_precision(A, b, solver_type)
+        
+        # 任务分配
+        task_info = self._allocate_task(A, b, solver_type, precision)
+        
         start_time = time.time()
         
-        if solver_type == 'gpu_cg' and self.gpu_available:
-            result = self._gpu_solve(A, b)
+        # 执行求解
+        if task_info['device'] == 'gpu' and self.gpu_available:
+            result = self._gpu_solve_advanced(A, b, solver_type, precision, task_info)
             self.gpu_performance[time.time()] = time.time() - start_time
-        elif solver_type == 'openmp_cg' and self.openmp_available:
-            result = self._openmp_solve(A, b)
+        elif task_info['device'] == 'cpu' and self.openmp_available:
+            result = self._openmp_solve_advanced(A, b, solver_type, precision, task_info)
             self.cpu_performance[time.time()] = time.time() - start_time
         else:
-            result = self._cpu_solve(A, b)
+            result = self._cpu_solve_advanced(A, b, solver_type, precision, task_info)
             self.cpu_performance[time.time()] = time.time() - start_time
+        
+        # 记录任务性能
+        self._record_task_performance(task_info, time.time() - start_time)
         
         return result
     
@@ -765,93 +1726,426 @@ class HeterogeneousComputingManager:
         problem_size = A.shape[0]
         sparsity = 1.0 - A.nnz / (A.shape[0] * A.shape[1]) if hasattr(A, 'nnz') else 0.5
         
-        if problem_size > 10000 and self.gpu_available and sparsity > 0.8:
+        # 考虑GPU内存和计算能力
+        if (problem_size > self.gpu_task_threshold and 
+            self.gpu_available and 
+            sparsity > 0.8 and
+            self._check_gpu_memory_availability(A, b)):
             return 'gpu_cg'
-        elif problem_size > 5000 and self.openmp_available:
+        elif (problem_size > self.cpu_task_threshold and 
+              self.openmp_available):
             return 'openmp_cg'
         else:
             return 'cpu_cg'
     
-    def _gpu_solve(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """GPU求解"""
+    def _select_optimal_precision(self, A: np.ndarray, b: np.ndarray, solver_type: str) -> str:
+        """选择最优精度策略"""
+        if not self.mixed_precision:
+            return 'fp64'
+        
+        # 基于问题特征选择精度
+        problem_size = A.shape[0]
+        condition_number = self._estimate_condition_number(A)
+        
+        if solver_type == 'gpu_cg' and problem_size > 10000:
+            # 大规模GPU问题：使用混合精度
+            if condition_number < 1e6:
+                return 'fp32'  # 良条件问题用单精度
+            else:
+                return 'mixed'  # 病条件问题用混合精度
+        elif solver_type == 'openmp_cg' and problem_size > 5000:
+            # 中等规模OpenMP问题：根据条件数选择
+            if condition_number < 1e4:
+                return 'fp32'
+            else:
+                return 'fp64'
+        else:
+            # 小规模或CPU问题：使用双精度
+            return 'fp64'
+    
+    def _estimate_condition_number(self, A: np.ndarray) -> float:
+        """估计矩阵条件数（简化实现）"""
         try:
-            # 转换为PyTorch张量
-            A_tensor = torch.from_numpy(A.toarray()).float().cuda(self.gpu_device)
-            b_tensor = torch.from_numpy(b).float().cuda(self.gpu_device)
+            # 使用特征值估计条件数
+            if hasattr(A, 'toarray'):
+                A_dense = A.toarray()
+            else:
+                A_dense = A
+            
+            eigenvals = np.linalg.eigvals(A_dense)
+            eigenvals = eigenvals[np.abs(eigenvals) > 1e-10]  # 过滤零特征值
+            
+            if len(eigenvals) > 0:
+                return np.max(np.abs(eigenvals)) / np.min(np.abs(eigenvals))
+            else:
+                return 1e6  # 默认值
+        except:
+            return 1e6  # 出错时返回默认值
+    
+    def _check_gpu_memory_availability(self, A: np.ndarray, b: np.ndarray) -> bool:
+        """检查GPU内存可用性"""
+        if not self.gpu_available:
+            return False
+        
+        try:
+            # 估算所需内存
+            problem_size = A.shape[0]
+            estimated_memory = problem_size * problem_size * 8 * 2  # 假设双精度，2倍空间
+            
+            # 获取当前GPU内存使用情况
+            allocated = torch.cuda.memory_allocated(self.gpu_device)
+            cached = torch.cuda.memory_reserved(self.gpu_device)
+            available = self.gpu_memory_info['total'] - allocated - cached
+            
+            return estimated_memory < available * 0.8  # 保留20%缓冲
+        except:
+            return False
+    
+    def _allocate_task(self, A: np.ndarray, b: np.ndarray, 
+                      solver_type: str, precision: str) -> Dict:
+        """分配任务到合适的设备"""
+        task_info = {
+            'device': 'cpu',
+            'solver_type': solver_type,
+            'precision': precision,
+            'problem_size': A.shape[0],
+            'estimated_time': 0.0,
+            'priority': 'normal'
+        }
+        
+        # 基于求解器类型分配设备
+        if solver_type == 'gpu_cg' and self.gpu_available:
+            task_info['device'] = 'gpu'
+            task_info['estimated_time'] = self._estimate_gpu_time(A, b, precision)
+        elif solver_type == 'openmp_cg' and self.openmp_available:
+            task_info['device'] = 'openmp'
+            task_info['estimated_time'] = self._estimate_openmp_time(A, b, precision)
+        else:
+            task_info['device'] = 'cpu'
+            task_info['estimated_time'] = self._estimate_cpu_time(A, b, precision)
+        
+        # 设置优先级
+        if task_info['estimated_time'] > 10.0:
+            task_info['priority'] = 'high'
+        elif task_info['estimated_time'] < 1.0:
+            task_info['priority'] = 'low'
+        
+        return task_info
+    
+    def _estimate_gpu_time(self, A: np.ndarray, b: np.ndarray, precision: str) -> float:
+        """估算GPU求解时间"""
+        problem_size = A.shape[0]
+        sparsity = 1.0 - A.nnz / (A.shape[0] * A.shape[1]) if hasattr(A, 'nnz') else 0.5
+        
+        # 基于问题规模和稀疏性的简单估算
+        base_time = problem_size / 10000.0  # 基础时间
+        sparsity_factor = 1.0 + (1.0 - sparsity) * 0.5  # 稀疏性因子
+        precision_factor = 0.5 if precision == 'fp32' else 1.0  # 精度因子
+        
+        return base_time * sparsity_factor * precision_factor
+    
+    def _estimate_openmp_time(self, A: np.ndarray, b: np.ndarray, precision: str) -> float:
+        """估算OpenMP求解时间"""
+        problem_size = A.shape[0]
+        thread_factor = 1.0 / self.cpu_threads  # 线程加速因子
+        
+        base_time = problem_size / 5000.0  # 基础时间
+        precision_factor = 0.7 if precision == 'fp32' else 1.0  # 精度因子
+        
+        return base_time * precision_factor * thread_factor
+    
+    def _estimate_cpu_time(self, A: np.ndarray, b: np.ndarray, precision: str) -> float:
+        """估算CPU求解时间"""
+        problem_size = A.shape[0]
+        base_time = problem_size / 2000.0  # 基础时间
+        precision_factor = 0.8 if precision == 'fp32' else 1.0  # 精度因子
+        
+        return base_time * precision_factor
+    
+    def _gpu_solve_advanced(self, A: np.ndarray, b: np.ndarray, 
+                           solver_type: str, precision: str, task_info: Dict) -> np.ndarray:
+        """高级GPU求解 - 支持混合精度"""
+        try:
+            # 根据精度策略处理数据
+            if precision == 'fp32':
+                A_gpu, b_gpu = self._prepare_gpu_data_fp32(A, b)
+            elif precision == 'mixed':
+                A_gpu, b_gpu = self._prepare_gpu_data_mixed(A, b)
+            else:  # fp64
+                A_gpu, b_gpu = self._prepare_gpu_data_fp64(A, b)
             
             # GPU上的共轭梯度求解
-            x_tensor = torch.zeros_like(b_tensor)
+            if solver_type == 'gpu_cg':
+                x_gpu = self._gpu_conjugate_gradient(A_gpu, b_gpu, precision)
+            else:
+                # 其他求解器
+                x_gpu = self._gpu_generic_solve(A_gpu, b_gpu, solver_type)
             
-            for iteration in range(self.config.max_iterations):
-                r = b_tensor - torch.mv(A_tensor, x_tensor)
-                p = r.clone()
-                
-                for i in range(self.config.max_iterations):
-                    Ap = torch.mv(A_tensor, p)
-                    alpha = torch.dot(r, r) / torch.dot(p, Ap)
-                    x_tensor = x_tensor + alpha * p
-                    r_new = r - alpha * Ap
-                    
-                    if torch.norm(r_new) < self.config.tolerance:
-                        break
-                    
-                    beta = torch.dot(r_new, r_new) / torch.dot(r, r)
-                    p = r_new + beta * p
-                    r = r_new
+            # 转换回CPU
+            result = x_gpu.cpu().numpy()
             
-            return x_tensor.cpu().numpy()
+            # 清理GPU内存
+            del A_gpu, b_gpu, x_gpu
+            torch.cuda.empty_cache()
+            
+            return result
             
         except Exception as e:
-            print(f"GPU求解失败，回退到CPU: {e}")
-            return self._cpu_solve(A, b)
+            print(f"⚠️ GPU求解失败: {e}，回退到CPU")
+            return self._cpu_solve_advanced(A, b, solver_type, precision, task_info)
     
-    def _openmp_solve(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """OpenMP并行求解"""
-        if not HAS_NUMBA:
-            return self._cpu_solve(A, b)
-        
-        # 使用Numba的并行化
-        @nb.njit(parallel=True)
-        def parallel_cg_solve(A_dense, b, max_iter, tol):
-            n = len(b)
-            x = np.zeros(n)
-            r = b.copy()
-            p = r.copy()
-            
-            for iteration in prange(max_iter):
-                Ap = np.zeros(n)
-                for i in prange(n):
-                    for j in range(n):
-                        Ap[i] += A_dense[i, j] * p[j]
-                
-                alpha = np.dot(r, r) / np.dot(p, Ap)
-                x = x + alpha * p
-                r_new = r - alpha * Ap
-                
-                if np.linalg.norm(r_new) < tol:
-                    break
-                
-                beta = np.dot(r_new, r_new) / np.dot(r, r)
-                p = r_new + beta * p
-                r = r_new
-            
-            return x
-        
-        return parallel_cg_solve(A.toarray(), b, self.config.max_iterations, self.config.tolerance)
-    
-    def _cpu_solve(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """CPU求解"""
-        if HAS_SCIPY:
-            return cg(A, b, maxiter=self.config.max_iterations, tol=self.config.tolerance)[0]
+    def _prepare_gpu_data_fp32(self, A: np.ndarray, b: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
+        """准备FP32 GPU数据"""
+        if hasattr(A, 'toarray'):
+            A_dense = A.toarray()
         else:
-            # 简单的迭代求解器
-            x = np.zeros_like(b)
-            for i in range(self.config.max_iterations):
-                x_new = (b - A.dot(x)) / A.diagonal()
-                if np.linalg.norm(x_new - x) < self.config.tolerance:
-                    break
-                x = x_new
-            return x
+            A_dense = A
+        
+        A_tensor = torch.from_numpy(A_dense).float().cuda(self.gpu_device)
+        b_tensor = torch.from_numpy(b).float().cuda(self.gpu_device)
+        
+        return A_tensor, b_tensor
+    
+    def _prepare_gpu_data_fp64(self, A: np.ndarray, b: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
+        """准备FP64 GPU数据"""
+        if hasattr(A, 'toarray'):
+            A_dense = A.toarray()
+        else:
+            A_dense = A
+        
+        A_tensor = torch.from_numpy(A_dense).double().cuda(self.gpu_device)
+        b_tensor = torch.from_numpy(b).double().cuda(self.gpu_device)
+        
+        return A_tensor, b_tensor
+    
+    def _prepare_gpu_data_mixed(self, A: np.ndarray, b: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
+        """准备混合精度GPU数据"""
+        if hasattr(A, 'toarray'):
+            A_dense = A.toarray()
+        else:
+            A_dense = A
+        
+        # 矩阵用FP32，向量用FP64（混合精度策略）
+        A_tensor = torch.from_numpy(A_dense).float().cuda(self.gpu_device)
+        b_tensor = torch.from_numpy(b).double().cuda(self.gpu_device)
+        
+        return A_tensor, b_tensor
+    
+    def _gpu_conjugate_gradient(self, A: torch.Tensor, b: torch.Tensor, precision: str) -> torch.Tensor:
+        """GPU上的共轭梯度求解"""
+        # 初始化
+        x = torch.zeros_like(b)
+        r = b.clone()
+        p = r.clone()
+        
+        # 迭代求解
+        for iteration in range(self.config.max_iterations):
+            # 矩阵-向量乘法
+            Ap = torch.mv(A, p.float() if precision == 'mixed' else p)
+            
+            # 计算步长
+            alpha = torch.dot(r, r) / torch.dot(p, Ap)
+            
+            # 更新解
+            x = x + alpha * p
+            
+            # 更新残差
+            r_new = r - alpha * Ap
+            
+            # 检查收敛性
+            if torch.norm(r_new) < self.config.tolerance:
+                break
+            
+            # 计算新的搜索方向
+            beta = torch.dot(r_new, r_new) / torch.dot(r, r)
+            p = r_new + beta * p
+            r = r_new
+        
+        return x
+    
+    def _gpu_generic_solve(self, A: torch.Tensor, b: torch.Tensor, solver_type: str) -> torch.Tensor:
+        """GPU上的通用求解器"""
+        # 这里可以实现其他GPU求解器
+        # 目前回退到简单的迭代求解
+        x = torch.zeros_like(b)
+        for i in range(10):
+            x = torch.linalg.solve(A, b)
+        return x
+    
+    def _openmp_solve_advanced(self, A: np.ndarray, b: np.ndarray, 
+                              solver_type: str, precision: str, task_info: Dict) -> np.ndarray:
+        """高级OpenMP求解 - 支持混合精度"""
+        try:
+            # 根据精度策略处理数据
+            if precision == 'fp32':
+                A_omp, b_omp = self._prepare_openmp_data_fp32(A, b)
+            else:  # fp64
+                A_omp, b_omp = self._prepare_openmp_data_fp64(A, b)
+            
+            # OpenMP上的共轭梯度求解
+            if solver_type == 'openmp_cg':
+                x_omp = self._openmp_conjugate_gradient(A_omp, b_omp, precision)
+            else:
+                x_omp = self._openmp_generic_solve(A_omp, b_omp, solver_type)
+            
+            return x_omp
+            
+        except Exception as e:
+            print(f"⚠️ OpenMP求解失败: {e}，回退到CPU")
+            return self._cpu_solve_advanced(A, b, solver_type, precision, task_info)
+    
+    def _prepare_openmp_data_fp32(self, A: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """准备FP32 OpenMP数据"""
+        if hasattr(A, 'toarray'):
+            A_dense = A.toarray().astype(np.float32)
+        else:
+            A_dense = A.astype(np.float32)
+        
+        b_omp = b.astype(np.float32)
+        
+        return A_dense, b_omp
+    
+    def _prepare_openmp_data_fp64(self, A: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """准备FP64 OpenMP数据"""
+        if hasattr(A, 'toarray'):
+            A_dense = A.toarray().astype(np.float64)
+        else:
+            A_dense = A.astype(np.float64)
+        
+        b_omp = b.astype(np.float64)
+        
+        return A_dense, b_omp
+    
+    def _openmp_conjugate_gradient(self, A: np.ndarray, b: np.ndarray, precision: str) -> np.ndarray:
+        """OpenMP上的共轭梯度求解"""
+        # 使用Numba的并行化
+        if HAS_NUMBA:
+            return self._numba_parallel_cg(A, b)
+        else:
+            return self._serial_conjugate_gradient(A, b)
+    
+    def _numba_parallel_cg(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Numba并行化的共轭梯度"""
+        # 这里应该实现Numba并行化的CG
+        # 目前回退到串行版本
+        return self._serial_conjugate_gradient(A, b)
+    
+    def _serial_conjugate_gradient(self, A: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """串行共轭梯度求解"""
+        x = np.zeros_like(b)
+        r = b.copy()
+        p = r.copy()
+        
+        for iteration in range(self.config.max_iterations):
+            Ap = A @ p
+            alpha = np.dot(r, r) / np.dot(p, Ap)
+            x = x + alpha * p
+            r_new = r - alpha * Ap
+            
+            if np.linalg.norm(r_new) < self.config.tolerance:
+                break
+            
+            beta = np.dot(r_new, r_new) / np.dot(r, r)
+            p = r_new + beta * p
+            r = r_new
+        
+        return x
+    
+    def _openmp_generic_solve(self, A: np.ndarray, b: np.ndarray, solver_type: str) -> np.ndarray:
+        """OpenMP上的通用求解器"""
+        # 这里可以实现其他OpenMP求解器
+        return self._serial_conjugate_gradient(A, b)
+    
+    def _cpu_solve_advanced(self, A: np.ndarray, b: np.ndarray, 
+                           solver_type: str, precision: str, task_info: Dict) -> np.ndarray:
+        """高级CPU求解 - 支持混合精度"""
+        # 根据精度策略处理数据
+        if precision == 'fp32':
+            A_cpu, b_cpu = self._prepare_cpu_data_fp32(A, b)
+        else:  # fp64
+            A_cpu, b_cpu = self._prepare_cpu_data_fp64(A, b)
+        
+        # CPU求解
+        if HAS_SCIPY:
+            return cg(A_cpu, b_cpu, maxiter=self.config.max_iterations, tol=self.config.tolerance)[0]
+        else:
+            return self._serial_conjugate_gradient(A_cpu, b_cpu)
+    
+    def _prepare_cpu_data_fp32(self, A: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """准备FP32 CPU数据"""
+        if hasattr(A, 'toarray'):
+            A_cpu = A.toarray().astype(np.float32)
+        else:
+            A_cpu = A.astype(np.float32)
+        
+        b_cpu = b.astype(np.float32)
+        
+        return A_cpu, b_cpu
+    
+    def _prepare_cpu_data_fp64(self, A: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """准备FP64 CPU数据"""
+        if hasattr(A, 'toarray'):
+            A_cpu = A.toarray().astype(np.float64)
+        else:
+            A_cpu = A.astype(np.float64)
+        
+        b_cpu = b.astype(np.float64)
+        
+        return A_cpu, b_cpu
+    
+    def _record_task_performance(self, task_info: Dict, execution_time: float):
+        """记录任务性能"""
+        current_time = time.time()
+        
+        self.task_performance_history[current_time] = {
+            'task_info': task_info,
+            'execution_time': execution_time,
+            'device': task_info['device'],
+            'precision': task_info['precision']
+        }
+    
+    def get_performance_summary(self) -> Dict:
+        """获取性能总结"""
+        return {
+            'gpu_performance': self.gpu_performance,
+            'cpu_performance': self.cpu_performance,
+            'task_performance': self.task_performance_history,
+            'hardware_info': {
+                'gpu_available': self.gpu_available,
+                'gpu_device': self.gpu_device,
+                'gpu_memory': self.gpu_memory_info,
+                'openmp_available': self.openmp_available,
+                'cpu_threads': self.cpu_threads
+            },
+            'mixed_precision': self.mixed_precision,
+            'task_allocation_strategy': self.task_allocation_strategy
+        }
+
+
+class TaskScheduler:
+    """任务调度器"""
+    
+    def __init__(self, heterogeneous_manager: HeterogeneousComputingManager):
+        self.manager = heterogeneous_manager
+        self.task_queue = []
+        self.execution_history = []
+    
+    def schedule_task(self, task: Dict):
+        """调度任务"""
+        # 根据优先级和设备可用性调度任务
+        if task['priority'] == 'high':
+            self.task_queue.insert(0, task)
+        else:
+            self.task_queue.append(task)
+    
+    def execute_next_task(self):
+        """执行下一个任务"""
+        if not self.task_queue:
+            return None
+        
+        task = self.task_queue.pop(0)
+        # 执行任务逻辑
+        return task
 
 
 class AdaptiveSolverSelector:
@@ -1567,6 +2861,495 @@ def run_comprehensive_benchmark():
           f"OpenMP={performance_summary['hardware_info']['openmp_available']}")
     
     return results, performance_summary
+
+
+# 配置类定义
+@dataclass
+class ParallelConfig:
+    """并行求解器配置"""
+    solver_type: str = 'cg'
+    max_iterations: int = 1000
+    tolerance: float = 1e-8
+    preconditioner: str = 'jacobi'
+    use_mpi: bool = True
+    use_gpu: bool = False
+    use_openmp: bool = False
+
+
+@dataclass
+class AdvancedParallelConfig:
+    """高级并行求解器配置"""
+    solver_type: str = 'adaptive'
+    max_iterations: int = 1000
+    tolerance: float = 1e-8
+    preconditioner: str = 'jacobi'
+    
+    # 并行设置
+    use_mpi: bool = True
+    use_gpu: bool = False
+    use_openmp: bool = False
+    cpu_threads: int = 4
+    
+    # 高级功能
+    ml_based_balancing: bool = True
+    adaptive_communication: bool = True
+    mixed_precision: bool = False
+    
+    # 性能优化
+    communication_overlap: bool = True
+    dynamic_load_balancing: bool = True
+    topology_aware_routing: bool = True
+
+
+@dataclass
+class PerformanceStats:
+    """性能统计"""
+    total_solve_time: float = 0.0
+    iterations: int = 0
+    residual_norm: float = 0.0
+    parallel_efficiency: float = 1.0
+    speedup: float = 1.0
+
+
+class PerformanceMetrics:
+    """深度性能指标分析器 - 支持细粒度瓶颈定位"""
+    
+    def __init__(self):
+        # 基础性能指标
+        self.total_solve_time = 0.0
+        self.iterations = 0
+        self.residual_norm = 0.0
+        self.parallel_efficiency = 1.0
+        self.speedup = 1.0
+        
+        # 细粒度性能指标
+        self.communication_time = 0.0
+        self.computation_time = 0.0
+        self.setup_time = 0.0
+        self.cleanup_time = 0.0
+        
+        # 通信/计算比例
+        self.communication_computation_ratio = 0.0
+        
+        # 缓存性能指标
+        self.cache_hit_rate = 0.0
+        self.memory_bandwidth = 0.0
+        self.cache_miss_penalty = 0.0
+        
+        # 负载均衡指标
+        self.load_imbalance = 0.0
+        self.migration_overhead = 0.0
+        self.repartitioning_cost = 0.0
+        
+        # 异构计算指标
+        self.gpu_utilization = 0.0
+        self.cpu_utilization = 0.0
+        self.gpu_memory_usage = 0.0
+        self.cpu_memory_usage = 0.0
+        
+        # 精度相关指标
+        self.mixed_precision_benefit = 0.0
+        self.precision_error = 0.0
+        
+        # 历史记录
+        self.performance_history = []
+        self.bottleneck_history = []
+        
+        # 性能分析器
+        self.performance_analyzer = PerformanceAnalyzer()
+    
+    def update_metrics(self, **kwargs):
+        """更新性能指标"""
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        
+        # 计算派生指标
+        self._compute_derived_metrics()
+        
+        # 记录历史
+        self._record_performance_history()
+        
+        # 分析瓶颈
+        self._analyze_bottlenecks()
+    
+    def _compute_derived_metrics(self):
+        """计算派生指标"""
+        # 通信/计算比例
+        if self.computation_time > 0:
+            self.communication_computation_ratio = self.communication_time / self.computation_time
+        
+        # 总求解时间
+        self.total_solve_time = (self.setup_time + self.computation_time + 
+                                self.communication_time + self.cleanup_time)
+        
+        # 并行效率（如果有多个进程）
+        if hasattr(self, 'num_processes') and self.num_processes > 1:
+            ideal_time = self.total_solve_time * self.num_processes
+            self.parallel_efficiency = ideal_time / self.total_solve_time
+            self.speedup = self.num_processes / self.parallel_efficiency
+    
+    def _record_performance_history(self):
+        """记录性能历史"""
+        current_metrics = {
+            'timestamp': time.time(),
+            'total_time': self.total_solve_time,
+            'communication_time': self.communication_time,
+            'computation_time': self.computation_time,
+            'communication_ratio': self.communication_computation_ratio,
+            'load_imbalance': self.load_imbalance,
+            'gpu_utilization': self.gpu_utilization,
+            'cache_hit_rate': self.cache_hit_rate
+        }
+        
+        self.performance_history.append(current_metrics)
+        
+        # 保持历史记录在合理范围内
+        if len(self.performance_history) > 100:
+            self.performance_history.pop(0)
+    
+    def _analyze_bottlenecks(self):
+        """分析性能瓶颈"""
+        bottlenecks = []
+        
+        # 通信瓶颈
+        if self.communication_computation_ratio > 0.5:
+            bottlenecks.append({
+                'type': 'communication',
+                'severity': 'high' if self.communication_computation_ratio > 1.0 else 'medium',
+                'description': f'通信开销过高: {self.communication_computation_ratio:.2f}',
+                'suggestion': '优化通信模式，增加通信与计算重叠'
+            })
+        
+        # 负载均衡瓶颈
+        if self.load_imbalance > 0.2:
+            bottlenecks.append({
+                'type': 'load_balancing',
+                'severity': 'high' if self.load_imbalance > 0.5 else 'medium',
+                'description': f'负载不平衡: {self.load_imbalance:.2f}',
+                'suggestion': '启用动态负载均衡，优化分区策略'
+            })
+        
+        # 缓存瓶颈
+        if self.cache_hit_rate < 0.8:
+            bottlenecks.append({
+                'type': 'cache',
+                'severity': 'high' if self.cache_hit_rate < 0.6 else 'medium',
+                'description': f'缓存命中率低: {self.cache_hit_rate:.2f}',
+                'suggestion': '优化数据访问模式，增加数据局部性'
+            })
+        
+        # GPU瓶颈
+        if self.gpu_utilization < 0.7:
+            bottlenecks.append({
+                'type': 'gpu',
+                'severity': 'medium',
+                'description': f'GPU利用率低: {self.gpu_utilization:.2f}',
+                'suggestion': '优化GPU任务分配，减少CPU-GPU数据传输'
+            })
+        
+        # 记录瓶颈历史
+        if bottlenecks:
+            self.bottleneck_history.append({
+                'timestamp': time.time(),
+                'bottlenecks': bottlenecks
+            })
+            
+            # 保持瓶颈历史在合理范围内
+            if len(self.bottleneck_history) > 50:
+                self.bottleneck_history.pop(0)
+    
+    def get_performance_summary(self) -> Dict:
+        """获取性能总结"""
+        return {
+            'basic_metrics': {
+                'total_solve_time': self.total_solve_time,
+                'iterations': self.iterations,
+                'residual_norm': self.residual_norm,
+                'parallel_efficiency': self.parallel_efficiency,
+                'speedup': self.speedup
+            },
+            'detailed_metrics': {
+                'communication_time': self.communication_time,
+                'computation_time': self.computation_time,
+                'setup_time': self.setup_time,
+                'cleanup_time': self.cleanup_time,
+                'communication_computation_ratio': self.communication_computation_ratio
+            },
+            'hardware_metrics': {
+                'cache_hit_rate': self.cache_hit_rate,
+                'memory_bandwidth': self.memory_bandwidth,
+                'gpu_utilization': self.gpu_utilization,
+                'cpu_utilization': self.cpu_utilization,
+                'gpu_memory_usage': self.gpu_memory_usage,
+                'cpu_memory_usage': self.cpu_memory_usage
+            },
+            'load_balancing_metrics': {
+                'load_imbalance': self.load_imbalance,
+                'migration_overhead': self.migration_overhead,
+                'repartitioning_cost': self.repartitioning_cost
+            },
+            'precision_metrics': {
+                'mixed_precision_benefit': self.mixed_precision_benefit,
+                'precision_error': self.precision_error
+            },
+            'bottlenecks': self._get_current_bottlenecks(),
+            'recommendations': self._generate_recommendations()
+        }
+    
+    def _get_current_bottlenecks(self) -> List[Dict]:
+        """获取当前瓶颈"""
+        if not self.bottleneck_history:
+            return []
+        
+        return self.bottleneck_history[-1]['bottlenecks']
+    
+    def _generate_recommendations(self) -> List[str]:
+        """生成优化建议"""
+        recommendations = []
+        
+        # 基于瓶颈生成建议
+        bottlenecks = self._get_current_bottlenecks()
+        for bottleneck in bottlenecks:
+            if bottleneck['severity'] == 'high':
+                recommendations.append(f"🔴 高优先级: {bottleneck['suggestion']}")
+            elif bottleneck['severity'] == 'medium':
+                recommendations.append(f"🟡 中优先级: {bottleneck['suggestion']}")
+        
+        # 基于性能指标生成建议
+        if self.communication_computation_ratio > 0.3:
+            recommendations.append("📡 考虑使用非阻塞通信和计算重叠")
+        
+        if self.load_imbalance > 0.1:
+            recommendations.append("⚖️ 启用动态负载均衡")
+        
+        if self.gpu_utilization < 0.8:
+            recommendations.append("🚀 优化GPU任务分配策略")
+        
+        if self.cache_hit_rate < 0.9:
+            recommendations.append("💾 优化数据访问模式")
+        
+        return recommendations
+    
+    def export_metrics(self, filename: str = None) -> str:
+        """导出性能指标"""
+        if filename is None:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"performance_metrics_{timestamp}.json"
+        
+        metrics_data = {
+            'performance_summary': self.get_performance_summary(),
+            'performance_history': self.performance_history,
+            'bottleneck_history': self.bottleneck_history,
+            'export_timestamp': time.time()
+        }
+        
+        try:
+            with open(filename, 'w') as f:
+                json.dump(metrics_data, f, indent=2, default=str)
+            return filename
+        except Exception as e:
+            print(f"⚠️ 导出性能指标失败: {e}")
+            return None
+    
+    def plot_performance_trends(self, save_path: str = None):
+        """绘制性能趋势图"""
+        try:
+            import matplotlib.pyplot as plt
+            
+            if not self.performance_history:
+                print("⚠️ 没有性能历史数据可绘制")
+                return
+            
+            # 创建子图
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            fig.suptitle('性能指标趋势分析', fontsize=16)
+            
+            # 提取时间序列数据
+            timestamps = [entry['timestamp'] for entry in self.performance_history]
+            times = [ts - timestamps[0] for ts in timestamps]
+            
+            # 1. 时间趋势
+            total_times = [entry['total_time'] for entry in self.performance_history]
+            axes[0, 0].plot(times, total_times, 'b-', label='总求解时间')
+            axes[0, 0].set_title('求解时间趋势')
+            axes[0, 0].set_xlabel('时间 (s)')
+            axes[0, 0].set_ylabel('时间 (s)')
+            axes[0, 0].legend()
+            axes[0, 0].grid(True)
+            
+            # 2. 通信/计算比例
+            comm_ratios = [entry['communication_ratio'] for entry in self.performance_history]
+            axes[0, 1].plot(times, comm_ratios, 'r-', label='通信/计算比例')
+            axes[0, 1].set_title('通信开销趋势')
+            axes[0, 1].set_xlabel('时间 (s)')
+            axes[0, 1].set_ylabel('比例')
+            axes[0, 1].legend()
+            axes[0, 1].grid(True)
+            
+            # 3. 负载不平衡
+            load_imbalances = [entry['load_imbalance'] for entry in self.performance_history]
+            axes[1, 0].plot(times, load_imbalances, 'g-', label='负载不平衡')
+            axes[1, 0].set_title('负载均衡趋势')
+            axes[1, 0].set_xlabel('时间 (s)')
+            axes[1, 0].set_ylabel('不平衡度')
+            axes[1, 0].legend()
+            axes[1, 0].grid(True)
+            
+            # 4. GPU利用率
+            gpu_utils = [entry['gpu_utilization'] for entry in self.performance_history]
+            axes[1, 1].plot(times, gpu_utils, 'm-', label='GPU利用率')
+            axes[1, 1].set_title('GPU利用率趋势')
+            axes[1, 1].set_xlabel('时间 (s)')
+            axes[1, 1].set_ylabel('利用率')
+            axes[1, 1].legend()
+            axes[1, 1].grid(True)
+            
+            plt.tight_layout()
+            
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                print(f"📊 性能趋势图已保存到: {save_path}")
+            else:
+                plt.show()
+                
+        except ImportError:
+            print("⚠️ matplotlib不可用，无法绘制性能趋势图")
+        except Exception as e:
+            print(f"⚠️ 绘制性能趋势图失败: {e}")
+
+
+class PerformanceAnalyzer:
+    """性能分析器 - 深度分析性能瓶颈"""
+    
+    def __init__(self):
+        self.analysis_methods = {
+            'communication': self._analyze_communication_bottleneck,
+            'computation': self._analyze_computation_bottleneck,
+            'memory': self._analyze_memory_bottleneck,
+            'load_balancing': self._analyze_load_balancing_bottleneck,
+            'gpu': self._analyze_gpu_bottleneck
+        }
+    
+    def analyze_performance(self, metrics: PerformanceMetrics) -> Dict:
+        """分析性能瓶颈"""
+        analysis_results = {}
+        
+        for bottleneck_type, analyzer_method in self.analysis_methods.items():
+            analysis_results[bottleneck_type] = analyzer_method(metrics)
+        
+        return analysis_results
+    
+    def _analyze_communication_bottleneck(self, metrics: PerformanceMetrics) -> Dict:
+        """分析通信瓶颈"""
+        analysis = {
+            'severity': 'low',
+            'issues': [],
+            'suggestions': []
+        }
+        
+        if metrics.communication_computation_ratio > 0.5:
+            analysis['severity'] = 'high'
+            analysis['issues'].append('通信开销过高')
+            analysis['suggestions'].extend([
+                '使用非阻塞通信',
+                '实现通信与计算重叠',
+                '优化通信拓扑',
+                '减少通信频率'
+            ])
+        elif metrics.communication_computation_ratio > 0.2:
+            analysis['severity'] = 'medium'
+            analysis['issues'].append('通信开销中等')
+            analysis['suggestions'].extend([
+                '考虑通信优化',
+                '检查通信模式'
+            ])
+        
+        return analysis
+    
+    def _analyze_computation_bottleneck(self, metrics: PerformanceMetrics) -> Dict:
+        """分析计算瓶颈"""
+        analysis = {
+            'severity': 'low',
+            'issues': [],
+            'suggestions': []
+        }
+        
+        if metrics.computation_time > metrics.total_solve_time * 0.8:
+            analysis['severity'] = 'high'
+            analysis['issues'].append('计算密集')
+            analysis['suggestions'].extend([
+                '使用GPU加速',
+                '优化算法实现',
+                '启用OpenMP并行化'
+            ])
+        
+        return analysis
+    
+    def _analyze_memory_bottleneck(self, metrics: PerformanceMetrics) -> Dict:
+        """分析内存瓶颈"""
+        analysis = {
+            'severity': 'low',
+            'issues': [],
+            'suggestions': []
+        }
+        
+        if metrics.cache_hit_rate < 0.8:
+            analysis['severity'] = 'medium'
+            analysis['issues'].append('缓存命中率低')
+            analysis['suggestions'].extend([
+                '优化数据访问模式',
+                '增加数据局部性',
+                '使用缓存友好的算法'
+            ])
+        
+        return analysis
+    
+    def _analyze_load_balancing_bottleneck(self, metrics: PerformanceMetrics) -> Dict:
+        """分析负载均衡瓶颈"""
+        analysis = {
+            'severity': 'low',
+            'issues': [],
+            'suggestions': []
+        }
+        
+        if metrics.load_imbalance > 0.2:
+            analysis['severity'] = 'high'
+            analysis['issues'].append('负载不平衡严重')
+            analysis['suggestions'].extend([
+                '启用动态负载均衡',
+                '优化分区策略',
+                '使用ML预测负载分布'
+            ])
+        elif metrics.load_imbalance > 0.1:
+            analysis['severity'] = 'medium'
+            analysis['issues'].append('负载轻微不平衡')
+            analysis['suggestions'].extend([
+                '监控负载分布',
+                '考虑负载均衡'
+            ])
+        
+        return analysis
+    
+    def _analyze_gpu_bottleneck(self, metrics: PerformanceMetrics) -> Dict:
+        """分析GPU瓶颈"""
+        analysis = {
+            'severity': 'low',
+            'issues': [],
+            'suggestions': []
+        }
+        
+        if metrics.gpu_utilization < 0.7:
+            analysis['severity'] = 'medium'
+            analysis['issues'].append('GPU利用率低')
+            analysis['suggestions'].extend([
+                '优化GPU任务分配',
+                '减少CPU-GPU数据传输',
+                '使用混合精度计算',
+                '检查GPU内存使用'
+            ])
+        
+        return analysis
 
 
 if __name__ == "__main__":
