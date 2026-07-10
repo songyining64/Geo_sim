@@ -552,24 +552,82 @@ class BlockStokesSolver:
         return x
 
     def _build_amg_with_cf(self, A_vel, coarse, fine):
-        """用给定的C/F构建AMG求解器"""
+        """用给定的C/F递归构建完整多层级AMG层次"""
+        from solvers.multigrid_solver import AdaptiveCoarsening
+
         vel_solver = AlgebraicMultigridSolver.__new__(AlgebraicMultigridSolver)
         vel_solver.config = self.amg_config
-        vel_solver.levels = [{'matrix': A_vel, 'size': A_vel.shape[0], 'level': 0}]
-        P = vel_solver._build_advanced_interpolation_operator(A_vel, coarse, fine)
-        vel_solver.interpolation_operators = [P]
-        vel_solver.restriction_operators = [P.T]
-        coarse_A = P.T @ A_vel @ P
-        vel_solver.levels.append({'matrix': coarse_A, 'size': coarse_A.shape[0], 'level': 1})
+        vel_solver.levels = []
+        vel_solver.interpolation_operators = []
+        vel_solver.restriction_operators = []
+
+        current_A = A_vel.copy()
+        current_coarse = list(coarse)
+        current_fine = list(fine)
+        level = 0
+
+        while (level < vel_solver.config.max_levels and
+               current_A.shape[0] > vel_solver.config.max_coarse_size and
+               len(current_coarse) > 0):
+
+            vel_solver.levels.append({
+                'matrix': current_A, 'size': current_A.shape[0], 'level': level
+            })
+
+            P = vel_solver._build_advanced_interpolation_operator(
+                current_A, current_coarse, current_fine)
+            R = P.T
+            coarse_A = R @ current_A @ P
+
+            vel_solver.interpolation_operators.append(P)
+            vel_solver.restriction_operators.append(R)
+
+            # 下一层: 对粗矩阵继续C/F分裂
+            current_A = coarse_A
+            try:
+                current_coarse, current_fine = \
+                    AdaptiveCoarsening.algebraic_coarsening(
+                        current_A, vel_solver.config.strong_threshold)
+            except Exception:
+                break
+            level += 1
+
+        # 最粗层
+        if current_A.shape[0] > 0:
+            vel_solver.levels.append({
+                'matrix': current_A, 'size': current_A.shape[0],
+                'level': level
+            })
+
         vel_solver.is_setup = True
         return vel_solver
 
     @staticmethod
     def _extract_cf_from_solver(solver, A):
-        """从AMG求解器提取C/F标记"""
-        from solvers.multigrid_solver import AdaptiveCoarsening
+        """从刚求解完的AMG求解器提取C/F标记, 不重复跑AMG setup"""
         n = A.shape[0]
         labels = np.zeros(n, dtype=np.float32)
+
+        # 优先从solver的内部算子提取 — solver刚刚setup过, 不浪费
+        if hasattr(solver, 'interpolation_operators') and solver.interpolation_operators:
+            P = solver.interpolation_operators[0]  # 最细层的P
+            for i in range(min(P.shape[0], n)):
+                row = P[i].toarray().flatten()
+                # 粗点是P矩阵中有一行≈单位向量的行 (直接在粗网格上)
+                dominant = np.max(np.abs(row))
+                if dominant > 0.9 and np.sum(np.abs(row) > 0.1) == 1:
+                    labels[i] = 1.0
+            if np.any(labels > 0):
+                return labels
+
+        # 回退: 从新solver的levels中提取
+        if hasattr(solver, 'levels') and len(solver.levels) > 1:
+            coarse_size = solver.levels[1]['size']
+            labels[:coarse_size] = 1.0
+            return labels
+
+        # 最后回退: 传统AMG (仅当以上都失败时)
+        from solvers.multigrid_solver import AdaptiveCoarsening
         try:
             coarse, fine = AdaptiveCoarsening.algebraic_coarsening(A, 0.25)
             labels[coarse] = 1.0
@@ -846,13 +904,20 @@ class PicardStokesSolver:
         self.total_nusselt = 0.0
 
     def _setup_meta_amg(self):
-        """初始化Meta-AMG适配器"""
+        """初始化Meta-AMG — 训练或加载预训练模型"""
         try:
-            from gpu_acceleration.meta_amg import MetaAMGConfig as MConfig, MetaAMG
-            mcfg = MConfig(
-                training_data_source='stokes_picard',
-                stokes_nx=self.config.nx, stokes_ny=self.config.ny,
-                stokes_picard_iterations=min(8, self.config.max_picard_iterations),
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'meta_amg', 'gpu_acceleration/meta_amg.py')
+            meta_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(meta_mod)
+            MetaAMGConfig = meta_mod.MetaAMGConfig
+            MetaAMG = meta_mod.MetaAMG
+
+            n_nodes = self.mesh.n_nodes
+            mcfg = MetaAMGConfig(
+                min_matrix_size=max(64, n_nodes // 4),
+                max_matrix_size=max(200, n_nodes * 2),
                 num_training_sequences=self.config.meta_training_sequences,
                 num_meta_epochs=self.config.meta_training_epochs,
                 inner_steps=3, hidden_dim=32, num_layers=2,
@@ -860,9 +925,11 @@ class PicardStokesSolver:
             self.meta_amg = MetaAMG(mcfg)
             if self.config.meta_model_path:
                 self.meta_amg.load(self.config.meta_model_path)
+                print(f"Meta-AMG loaded from {self.config.meta_model_path}")
             else:
-                self.meta_amg.train(num_sequences=self.config.meta_training_sequences)
-            print("Meta-AMG initialized for Picard solver")
+                self.meta_amg.train(
+                    num_sequences=self.config.meta_training_sequences)
+                print("Meta-AMG trained and ready")
         except Exception as e:
             warnings.warn(f"Meta-AMG setup failed: {e}. Using traditional AMG.")
             self.meta_amg = None
