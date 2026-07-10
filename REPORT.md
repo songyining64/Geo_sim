@@ -84,6 +84,58 @@
 
 ---
 
-## 附录：项目文件总览
+## 附录A：项目文件总览
 
-项目的完整代码和文档托管在GitHub。根目录下有README（项目说明）、PAPER.md（论文大纲）、THEORY.md（理论证明）、REFERENCES.md（24篇文献附下载地址）和本份REPORT.md共五份文档。核心实现位于gpu_acceleration目录下的neural_amg.py与meta_amg.py，实验框架在experiments目录下，测试目录tests中包含127个全部通过的单元测试。
+项目的完整代码和文档托管在GitHub。根目录下有README（项目说明）、PAPER.md（论文大纲）、THEORY.md（理论证明）、REFERENCES.md（文献下载地址）和本份REPORT.md共五份文档。核心实现位于gpu_acceleration目录下的neural_amg.py与meta_amg.py，实验框架在experiments目录下，测试目录tests中包含127个全部通过的单元测试。
+
+---
+
+## 附录B：参考文献列表
+
+[1] Ruge, J.W. and Stüben, K. "Algebraic Multigrid." In *Multigrid Methods*, SIAM Frontiers in Applied Mathematics, 1987.
+
+[2] Stüben, K. "A review of algebraic multigrid." *Journal of Computational and Applied Mathematics*, 128(1-2), 281-309, 2001.
+
+[3] Greenfeld, D., Galun, M., Basri, R., Yavneh, I., and Kimmel, R. "Learning to Optimize Multigrid PDE Solvers." *Proceedings of the 36th International Conference on Machine Learning (ICML)*, PMLR 97, 2019.
+
+[4] Taghibakhshi, A., MacLachlan, S., Olson, L., and West, M. "Optimization-based Algebraic Multigrid Coarsening Using Reinforcement Learning." *Advances in Neural Information Processing Systems (NeurIPS)*, 2021.
+
+[5] Luz, I., Galun, M., Maron, H., Basri, R., and Yavneh, I. "Learning Algebraic Multigrid." *International Conference on Learning Representations (ICLR)*, 2024.
+
+[6] Chillón, E., Lidtke, A.K., Doan, N.A.K., and Font, B. "Acceleration of an algebraic multigrid pressure solver using graph neural networks." arXiv:2606.19251, 2026.
+
+[7] Goik, D. and Banaś, K. "Artificial intelligence-enhanced algebraic multigrid for 3D finite element simulations." *Computer Methods in Materials Science*, 2026.
+
+[8] Fink, Y., Ben-Yair, I., Ruthotto, L., and Treister, E. "RAPNet: Accelerating Algebraic Multigrid with Learned Sparse Corrections." arXiv:2605.26854, 2026.
+
+[9] Yusuf, S., Zhang, Z., Thopalli, K., and Li, R.P. "COARSERL: A Graph Reinforcement Learning Method for Algebraic Multigrid Coarsening." *AI & PDE: ICLR 2026 Workshop*, 2026.
+
+[10] Finn, C., Abbeel, P., and Levine, S. "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks." *Proceedings of the 34th International Conference on Machine Learning (ICML)*, 2017.
+
+[11] Finn, C., Rajeswaran, A., Kakade, S., and Levine, S. "Online Meta-Learning." *Proceedings of the 36th International Conference on Machine Learning (ICML)*, 2019.
+
+[12] Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhattacharya, K., Stuart, A., and Anandkumar, A. "Fourier Neural Operator for Parametric Partial Differential Equations." *International Conference on Learning Representations (ICLR)*, 2021.
+
+[13] Xu, K., Hu, W., Leskovec, J., and Jegelka, S. "How Powerful are Graph Neural Networks?" *International Conference on Learning Representations (ICLR)*, 2019.
+
+[14] Gao, H. and Ji, S. "Graph U-Nets." *Proceedings of the 36th International Conference on Machine Learning (ICML)*, 2019.
+
+[15] Moresi, L., Quenette, S., Lemiale, V., Mériaux, C., Appelbe, B., and Mühlhaus, H.B. "Computational approaches to studying non-linear dynamics of the crust and mantle." *Physics of the Earth and Planetary Interiors*, 163(1-4), 69-82, 2007.
+
+[16] Blankenbach, B., Busse, F., Christensen, U., Cserepes, L., Gunkel, D., Hansen, U., et al. "A benchmark comparison for mantle convection codes." *Geophysical Journal International*, 98(1), 23-38, 1989.
+
+[17] Hirth, G. and Kohlstedt, D.L. "Rheology of the upper mantle and the mantle wedge: A view from the experimentalists." In *Inside the Subduction Factory*, Geophysical Monograph 138, American Geophysical Union, 83-105, 2003.
+
+[18] Moresi, L. and Solomatov, V. "Mantle convection with a brittle lithosphere: Thoughts on the global tectonic styles of the Earth and Venus." *Geophysical Journal International*, 133(3), 669-682, 1998.
+
+[19] Brandt, A. "Algebraic multigrid theory: The symmetric case." *Applied Mathematics and Computation*, 19(1-4), 23-56, 1986.
+
+[20] Saad, Y. *Iterative Methods for Sparse Linear Systems*, 2nd Edition, SIAM, 2003.
+
+[21] Raissi, M., Perdikaris, P., and Karniadakis, G.E. "Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations." *Journal of Computational Physics*, 378, 686-707, 2019.
+
+[22] Kennedy, M.C. and O'Hagan, A. "Predicting the output from a complex computer code when fast approximations are available." *Biometrika*, 87(1), 1-13, 2000.
+
+[23] Sappl, J., Daropoulos, V., Rauch, W., et al. "Convolutional neural network-driven preconditioners for conjugate gradients." *Machine Learning: Science and Technology*, 2026.
+
+[24] Antonietti, P.F., Farenga, N., Manuzzi, E., Martinelli, G., et al. "Agglomeration of polygonal grids using graph neural networks with applications to multigrid solvers." *Computers & Mathematics with Applications*, 2024.
