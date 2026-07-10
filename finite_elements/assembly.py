@@ -366,6 +366,14 @@ def stokes_heat_element_matrix(node_coords, params):
     alpha = params.get('thermal_expansivity', 0.0)
     gravity = params.get('gravity', np.array([0.0, -9.81]))
 
+    # PSPG稳定化参数 (消除P1-P1单元的压力棋盘震荡)
+    # h_e = 单元特征长度 ≈ 最长边
+    d01 = np.linalg.norm(node_coords[1] - node_coords[0])
+    d12 = np.linalg.norm(node_coords[2] - node_coords[1])
+    d20 = np.linalg.norm(node_coords[0] - node_coords[2])
+    h_e = max(d01, d12, d20)
+    tau_pspg = params.get('pspg_beta', 0.2) * h_e**2 / (2.0 * eta + 1e-12)
+
     for q, w in zip(quad_pts, quad_wts):
         N = basis.evaluate(q.reshape(1, -1))[0]
         dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
@@ -395,6 +403,15 @@ def stokes_heat_element_matrix(node_coords, params):
                     u_idx = b * (dim + 2) + i
                     K[p_idx, u_idx] -= N[a] * dN_dx_[b, i] * dV
                     K[u_idx, p_idx] -= dN_dx_[a, i] * N[b] * dV  # transpose
+
+        # PSPG稳定化: ∫ τ ∇N_pa · ∇N_pb dΩ (消除P1-P1棋盘震荡)
+        # 加到压力-压力对角块: K_pp[a,b] += tau * grad_dot
+        for a in range(n_nodes):
+            pa = a * (dim + 2) + dim  # pressure DOF of node a
+            for b in range(n_nodes):
+                pb = b * (dim + 2) + dim
+                grad_dot = np.dot(dN_dx_[a], dN_dx_[b])
+                K[pa, pb] += tau_pspg * grad_dot * dV
 
         # 温度块: ∫ κ ∇N·∇N dΩ
         T_offset = dim + 1
@@ -442,6 +459,14 @@ def stokes_heat_element_matrix_3d(node_coords, params):
     alpha = params.get('thermal_expansivity', 0.0)
     g = params.get('gravity', np.array([0.0, 0.0, -1.0]))
 
+    # PSPG稳定化
+    edges = []
+    for i in range(4):
+        for j in range(i+1, 4):
+            edges.append(np.linalg.norm(node_coords[j] - node_coords[i]))
+    h_e = max(edges)
+    tau_pspg = params.get('pspg_beta', 0.15) * h_e**2 / (2.0 * eta + 1e-12)
+
     for q, w in zip(quad_pts, quad_wts):
         N = basis.evaluate(q.reshape(1, -1))[0]
         dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
@@ -469,6 +494,14 @@ def stokes_heat_element_matrix_3d(node_coords, params):
                     u_idx = b * (dim + 2) + i
                     K[p_idx, u_idx] -= N[a] * dN_dx_[b, i] * dV
                     K[u_idx, p_idx] -= dN_dx_[a, i] * N[b] * dV
+
+        # PSPG: ∫ τ ∇N_pa·∇N_pb dΩ (压力空间稳定化)
+        for a in range(n_nodes):
+            pa = a * (dim + 2) + dim
+            for b in range(n_nodes):
+                pb = b * (dim + 2) + dim
+                grad3 = dN_dx_[a, 0]*dN_dx_[b, 0] + dN_dx_[a, 1]*dN_dx_[b, 1] + dN_dx_[a, 2]*dN_dx_[b, 2]
+                K[pa, pb] += tau_pspg * grad3 * dV
 
         # 温度块: ∫ κ ∇N·∇N dΩ
         T_ofs = dim + 1
