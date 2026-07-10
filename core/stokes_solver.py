@@ -26,7 +26,7 @@ from pathlib import Path
 from finite_elements.basis_functions import LagrangeTriangle
 from finite_elements.quadrature import triangle_points_weights
 from finite_elements.transformations import jacobian_matrix, jacobian_det, dN_dx
-from finite_elements.assembly import stokes_heat_element_matrix
+from finite_elements.assembly import stokes_heat_element_matrix, stokes_heat_element_matrix_3d
 from solvers.multigrid_solver import (
     AlgebraicMultigridSolver, MultigridConfig
 )
@@ -210,7 +210,11 @@ class GlobalStokesAssembler:
                      'thermal_expansivity': 1.0,
                      'gravity': np.array([0.0, -1.0])}
 
-            Ke = stokes_heat_element_matrix(coords, params)
+            # 根据维度选择单元矩阵
+            if self.mesh.dim == 3:
+                Ke = stokes_heat_element_matrix_3d(coords, params)
+            else:
+                Ke = stokes_heat_element_matrix(coords, params)
 
             for a_local, a_global in enumerate(elem_nodes):
                 for b_local, b_global in enumerate(elem_nodes):
