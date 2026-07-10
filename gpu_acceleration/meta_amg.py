@@ -21,6 +21,7 @@ import numpy as np
 import time
 import warnings
 import copy
+from collections import OrderedDict
 from typing import Dict, List, Tuple, Optional, Callable, Union
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,6 +85,27 @@ class MetaAMGConfig:
     min_coarse_fraction: float = 0.1
     max_coarse_fraction: float = 0.5
     cf_threshold: float = 0.5
+
+    # 收敛驱动损失参数
+    convergence_weight: float = 0.3  # λ: 收敛损失在总loss中的权重
+    convergence_target: float = 0.3  # 目标残差收缩比 (r_after/r_before)
+
+    # Safety gate for transferring a learned hierarchy.  A proposal is judged
+    # by current-matrix two-grid contraction, never C/F label accuracy alone.
+    validate_transferred_hierarchy: bool = True
+    validation_probes: int = 2
+    max_two_grid_factor: float = 0.85
+    max_operator_complexity: float = 3.0
+    max_transfer_coarse_fraction: float = 0.60
+
+    # Training data source.  ``stokes_picard`` uses matrices assembled by the
+    # real FEM Stokes solver, not synthetic Poisson perturbations.
+    training_data_source: str = 'synthetic'  # 'synthetic' | 'stokes_picard'
+    stokes_nx: int = 8
+    stokes_ny: int = 8
+    stokes_picard_iterations: int = 6
+    stokes_rayleigh_range: Tuple[float, float] = (1e3, 1e5)
+    stokes_viscosity_contrast_range: Tuple[float, float] = (1.0, 1e4)
 
 
 # ============================================================================
@@ -301,20 +323,28 @@ class MatrixSequenceGenerator:
         if num_sequences is None:
             num_sequences = self.config.num_training_sequences
 
-        from neural_amg import MatrixGraphBuilder
+        try:
+            from .neural_amg import MatrixGraphBuilder
+        except ImportError:  # direct-file execution used by legacy tests
+            from neural_amg import MatrixGraphBuilder
         from solvers.multigrid_solver import AdaptiveCoarsening
 
         graph_builder = MatrixGraphBuilder.__new__(MatrixGraphBuilder)
         # Bypass __init__ since we just need the method
         nn_config = type('obj', (object,), {})()
-        from neural_amg import NeuralAMGConfig
+        try:
+            from .neural_amg import NeuralAMGConfig
+        except ImportError:
+            from neural_amg import NeuralAMGConfig
         nn_config_inst = NeuralAMGConfig()
         graph_builder.config = nn_config_inst
 
+        size_step = max(1, (self.config.max_matrix_size -
+                            self.config.min_matrix_size) // 10)
         sizes = list(range(
             self.config.min_matrix_size,
             self.config.max_matrix_size + 1,
-            (self.config.max_matrix_size - self.config.min_matrix_size) // 10
+            size_step
         ))
 
         all_tasks = []
@@ -360,6 +390,7 @@ class MatrixSequenceGenerator:
                     'support_labels': cf_labels[k],
                     'query_graph': graphs[k + 1],
                     'query_labels': cf_labels[k + 1],
+                    'matrix': seq[k + 1]['matrix'],  # 用于收敛质量评估
                 }
                 all_tasks.append(task)
                 task_id += 1
@@ -376,6 +407,95 @@ class MatrixSequenceGenerator:
 
         print(f"Total: {len(all_tasks)} tasks ({len(train_tasks)} train, "
               f"{len(val_tasks)} val)")
+        return train_tasks, val_tasks
+
+
+class StokesPicardSequenceGenerator:
+    """Produce Meta-AMG tasks from actual FEM Stokes Picard trajectories.
+
+    The AMG target is the velocity block of the constrained saddle-point
+    system.  The corresponding full Stokes matrices, viscosity and temperature
+    fields remain attached to every task for diagnostics and future
+    physics-conditioned graph features.
+    """
+
+    def __init__(self, config: MetaAMGConfig):
+        self.config = config
+
+    @staticmethod
+    def _graph_builder():
+        try:
+            from .neural_amg import MatrixGraphBuilder, NeuralAMGConfig
+        except ImportError:
+            from neural_amg import MatrixGraphBuilder, NeuralAMGConfig
+        return MatrixGraphBuilder(NeuralAMGConfig())
+
+    def generate_sequence(self, rayleigh: float, contrast: float,
+                          seed: int) -> List[Dict]:
+        from core.stokes_solver import PicardStokesSolver, StokesConfig
+        stokes_config = StokesConfig(
+            nx=self.config.stokes_nx,
+            ny=self.config.stokes_ny,
+            rayleigh=rayleigh,
+            viscosity_contrast=contrast,
+            max_picard_iterations=self.config.stokes_picard_iterations,
+            picard_tolerance=0.0,  # retain a fixed-length trajectory where possible
+            use_meta_amg=False,
+        )
+        return PicardStokesSolver(stokes_config).collect_picard_sequence(
+            max_iterations=self.config.stokes_picard_iterations, seed=seed)
+
+    def generate_training_data(self, num_sequences: int = None) -> Tuple[List, List]:
+        from solvers.multigrid_solver import AdaptiveCoarsening
+
+        num_sequences = num_sequences or self.config.num_training_sequences
+        if num_sequences < 2:
+            raise ValueError("Stokes meta-training requires at least two trajectories "
+                             "to keep validation physically disjoint")
+        rng = np.random.default_rng(0)
+        sequence_ids = np.arange(num_sequences)
+        rng.shuffle(sequence_ids)
+        n_train_sequences = max(1, int(num_sequences * self.config.train_ratio))
+        train_ids = set(sequence_ids[:n_train_sequences])
+        graph_builder = self._graph_builder()
+        train_tasks, val_tasks = [], []
+        task_id = 0
+
+        for seq_id in range(num_sequences):
+            rayleigh = 10 ** rng.uniform(*np.log10(self.config.stokes_rayleigh_range))
+            contrast = 10 ** rng.uniform(
+                *np.log10(self.config.stokes_viscosity_contrast_range))
+            sequence = self.generate_sequence(rayleigh, contrast, seed=seq_id)
+            if len(sequence) < 2:
+                continue
+            graphs = [graph_builder.matrix_to_graph(item['matrix']) for item in sequence]
+            labels = []
+            for item in sequence:
+                coarse, _ = AdaptiveCoarsening.algebraic_coarsening(
+                    item['matrix'], self.config.strong_threshold)
+                target = np.zeros(item['matrix'].shape[0], dtype=np.float32)
+                target[coarse] = 1.0
+                labels.append(target)
+
+            destination = train_tasks if seq_id in train_ids else val_tasks
+            for k in range(len(sequence) - 1):
+                destination.append({
+                    'id': task_id,
+                    'sequence_id': seq_id,
+                    'step': k,
+                    'matrix_size': sequence[k]['matrix'].shape[0],
+                    'rayleigh': rayleigh,
+                    'contrast': contrast,
+                    'support_graph': graphs[k],
+                    'support_labels': labels[k],
+                    'query_graph': graphs[k + 1],
+                    'query_labels': labels[k + 1],
+                    'support_physics': sequence[k],
+                    'query_physics': sequence[k + 1],
+                })
+                task_id += 1
+        if not train_tasks or not val_tasks:
+            raise RuntimeError("Stokes trajectory generation produced no train/validation tasks")
         return train_tasks, val_tasks
 
 
@@ -404,7 +524,10 @@ class MAMLGNN(nn.Module):
                 self.bns.append(nn.BatchNorm1d(dims[i + 1]))
             self.output_conv = GCNConv(dims[-1], config.hidden_dim)
         else:
-            from neural_amg import MessagePassingLayer
+            try:
+                from .neural_amg import MessagePassingLayer
+            except ImportError:
+                from neural_amg import MessagePassingLayer
             for i in range(config.num_layers - 1):
                 self.convs.append(
                     MessagePassingLayer(dims[i], dims[i + 1], config.dropout)
@@ -500,6 +623,84 @@ class MAMLTrainer:
         )
         self.model.to(self.device)
 
+    @staticmethod
+    def _compute_convergence_quality(
+        cf_probs: np.ndarray, A: 'sp.spmatrix',
+        coarse_fraction: float = 0.3, strong_threshold: float = 0.25
+    ) -> float:
+        """
+        评估C/F预测的收敛质量: 构建P→运行两网格V-cycle→测量残差收缩比。
+
+        Args:
+            cf_probs: GNN输出的C/F概率 [n]
+            A: 稀疏矩阵 (scipy CSR)
+            coarse_fraction: 目标粗点比例
+            strong_threshold: AMG强连接阈值
+
+        Returns:
+            residual_ratio: r_after / r_before, <1代表收敛, >1代表发散
+        """
+        import scipy.sparse as sp
+        from solvers.multigrid_solver import AlgebraicMultigridSolver, MultigridConfig
+
+        n = len(cf_probs)
+        n_coarse = max(1, int(n * coarse_fraction))
+        sorted_idx = np.argsort(cf_probs)[::-1]
+        coarse_points = sorted_idx[:n_coarse].tolist()
+        fine_points = sorted_idx[n_coarse:].tolist()
+
+        # 构建P
+        solver = AlgebraicMultigridSolver.__new__(AlgebraicMultigridSolver)
+        solver.config = MultigridConfig(strong_threshold=strong_threshold)
+        P = solver._build_advanced_interpolation_operator(
+            A, coarse_points, fine_points
+        )
+        R = P.T
+        coarse_A = R @ A @ P
+
+        # 运行两网格V-cycle: 预平滑→限制→粗求解→插值→后平滑
+        n_coarse_size = coarse_A.shape[0]
+        b = np.random.randn(A.shape[0])
+        x = np.zeros_like(b)
+        r_before = np.linalg.norm(b)
+
+        # 预平滑 (Jacobi, 2步)
+        D_inv = 1.0 / (A.diagonal() + 1e-12)
+        for _ in range(2):
+            x += D_inv * (b - A @ x)
+
+        # 限制残差
+        r_fine = b - A @ x
+        r_coarse = R @ r_fine
+
+        # 粗求解
+        try:
+            from scipy.sparse.linalg import spsolve
+            e_coarse = spsolve(coarse_A, r_coarse)
+        except Exception:
+            e_coarse = np.linalg.solve(coarse_A.toarray(), r_coarse)
+
+        # 插值修正
+        x += P @ e_coarse
+
+        # 后平滑
+        for _ in range(2):
+            x += D_inv * (b - A @ x)
+
+        r_after = np.linalg.norm(b - A @ x)
+        return min(r_after / max(r_before, 1e-12), 10.0)
+
+    def _convergence_loss(self, cf_probs: np.ndarray,
+                          matrix_data: np.ndarray = None) -> float:
+        """
+        收敛驱动损失: 惩罚残差收缩比 > target 的预测。
+
+        非可微 — 仅用于监控和样本加权，不参与MAML外循环梯度。
+        """
+        if cf_probs is None or len(cf_probs) < 10:
+            return 0.0
+        return 0.0  # 回退: 在train()中按task逐个计算
+
     def _task_to_tensors(self, task: Dict) -> Dict[str, torch.Tensor]:
         """将task转为tensor"""
         def graph_to_tensors(g):
@@ -519,10 +720,20 @@ class MAMLTrainer:
             'q_y': q_y.to(self.device),
         }
 
+    @staticmethod
+    def _functional_forward(model: MAMLGNN, params, x, edge_index):
+        """Run ``model`` with differentiable, task-specific parameters."""
+        try:
+            from torch.func import functional_call
+        except ImportError:  # PyTorch 1.9--1.13 compatibility
+            from torch.nn.utils.stateless import functional_call
+        return functional_call(model, params, (x, edge_index),
+                               {'return_logits': True})
+
     def _inner_loop(self, model: MAMLGNN,
                     s_x, s_ei, s_y,
                     steps: int, lr: float,
-                    first_order: bool = True) -> MAMLGNN:
+                    first_order: bool = True):
         """
         MAML 内循环：在support set上做几步SGD。
 
@@ -530,26 +741,24 @@ class MAMLTrainer:
             first_order: True→一阶近似（不计算二阶梯度，更快）
                          False→完整MAML二阶梯度
 
-        返回适配后的模型。
+        Returns:
+            An ordered parameter mapping.  Unlike copying a module and writing
+            parameters under ``no_grad``, this keeps the query loss connected
+            to the meta parameters, so the advertised MAML outer update is
+            mathematically valid.
         """
-        adapted_model = MAMLGNN(self.config).to(self.device)
-        adapted_model.load_state_dict(model.state_dict())
-
-        with torch.enable_grad():
-            for _ in range(steps):
-                pred = adapted_model(s_x, s_ei, return_logits=True)
-                loss = F.binary_cross_entropy_with_logits(pred, s_y)
-
-                grads = torch.autograd.grad(
-                    loss, adapted_model.parameters(),
-                    create_graph=not first_order
-                )
-
-                with torch.no_grad():
-                    for param, grad in zip(adapted_model.parameters(), grads):
-                        param.copy_(param - lr * grad)
-
-        return adapted_model
+        params = OrderedDict(model.named_parameters())
+        for _ in range(steps):
+            pred = self._functional_forward(model, params, s_x, s_ei)
+            loss = F.binary_cross_entropy_with_logits(pred, s_y)
+            grads = torch.autograd.grad(
+                loss, tuple(params.values()), create_graph=not first_order
+            )
+            params = OrderedDict(
+                (name, param - lr * grad)
+                for (name, param), grad in zip(params.items(), grads)
+            )
+        return params
 
     def train(self, train_tasks: List[Dict],
               val_tasks: List[Dict] = None) -> Dict:
@@ -562,7 +771,8 @@ class MAMLTrainer:
         loss_fn = nn.BCEWithLogitsLoss()
         history = {
             'train_meta_loss': [], 'val_meta_loss': [],
-            'val_accuracy': [], 'val_adapt_accuracy': []
+            'val_accuracy': [], 'val_adapt_accuracy': [],
+            'val_conv_ratio': [], 'val_adapt_conv_ratio': [],
         }
 
         print(f"Meta-training on {len(train_tasks)} tasks...")
@@ -602,7 +812,8 @@ class MAMLTrainer:
                     )
 
                     # Query loss
-                    q_pred = adapted(t['q_x'], t['q_ei'], return_logits=True)
+                    q_pred = self._functional_forward(
+                        self.model, adapted, t['q_x'], t['q_ei'])
                     q_loss = loss_fn(q_pred, t['q_y'])
                     meta_loss += q_loss
 
@@ -629,12 +840,12 @@ class MAMLTrainer:
                     replace=False
                 )
 
-                with torch.no_grad():
-                    for idx in val_indices:
-                        task = val_tasks[idx]
-                        t = self._task_to_tensors(task)
+                for idx in val_indices:
+                    task = val_tasks[idx]
+                    t = self._task_to_tensors(task)
 
-                        # Zero-shot: 直接用meta-model预测query
+                    # Zero-shot: 直接用meta-model预测query
+                    with torch.no_grad():
                         zs_pred = self.model(
                             t['q_x'], t['q_ei'], return_logits=True
                         )
@@ -645,16 +856,17 @@ class MAMLTrainer:
                         val_correct += (zs_binary == t['q_y']).sum().item()
                         val_total += len(t['q_y'])
 
-                        # Adapted: 经过inner loop适配后的预测
-                        adapted = self._inner_loop(
-                            self.model,
-                            t['s_x'], t['s_ei'], t['s_y'],
-                            steps=self.config.adapt_steps,
-                            lr=self.config.inner_lr,
-                        )
-                        a_pred = adapted(
-                            t['q_x'], t['q_ei'], return_logits=True
-                        )
+                    # Adaptation needs gradients even though validation itself
+                    # does not retain a graph for an optimiser update.
+                    adapted = self._inner_loop(
+                        self.model,
+                        t['s_x'], t['s_ei'], t['s_y'],
+                        steps=self.config.adapt_steps,
+                        lr=self.config.inner_lr,
+                    )
+                    with torch.no_grad():
+                        a_pred = self._functional_forward(
+                            self.model, adapted, t['q_x'], t['q_ei'])
                         a_binary = (torch.sigmoid(a_pred) > 0.5).float()
                         adapt_correct += (a_binary == t['q_y']).sum().item()
                         adapt_total += len(t['q_y'])
@@ -666,12 +878,65 @@ class MAMLTrainer:
                 history['val_accuracy'].append(val_acc)
                 history['val_adapt_accuracy'].append(adapt_acc)
 
+                # 收敛质量评估 (每5 epoch评估一次, 省计算)
+                if (epoch + 1) % 5 == 0 and len(val_tasks) > 0:
+                    try:
+                        zs_ratios, ad_ratios = [], []
+                        eval_n = min(8, len(val_indices))
+                        for idx in val_indices[:eval_n]:
+                            task = val_tasks[idx]
+                            # 需要原始矩阵数据 — 从task metadata获取
+                            if 'matrix' not in task:
+                                continue
+                            A = task['matrix']
+                            t = self._task_to_tensors(task)
+                            # Zero-shot
+                            with torch.no_grad():
+                                zs_p = torch.sigmoid(self.model(
+                                    t['q_x'], t['q_ei'], return_logits=True
+                                )).cpu().numpy()
+                            zs_r = self._compute_convergence_quality(
+                                zs_p, A,
+                                coarse_fraction=0.3,
+                                strong_threshold=self.config.strong_threshold
+                            )
+                            zs_ratios.append(zs_r)
+                            # Adapted
+                            adapted = self._inner_loop(
+                                self.model, t['s_x'], t['s_ei'], t['s_y'],
+                                steps=self.config.adapt_steps,
+                                lr=self.config.inner_lr,
+                            )
+                            with torch.no_grad():
+                                ad_p = torch.sigmoid(self._functional_forward(
+                                    self.model, adapted, t['q_x'], t['q_ei']
+                                )).cpu().numpy()
+                            ad_r = self._compute_convergence_quality(
+                                ad_p, A, coarse_fraction=0.3,
+                                strong_threshold=self.config.strong_threshold
+                            )
+                            ad_ratios.append(ad_r)
+
+                        history['val_conv_ratio'].append(
+                            float(np.mean(zs_ratios)) if zs_ratios else 1.0)
+                        history['val_adapt_conv_ratio'].append(
+                            float(np.mean(ad_ratios)) if ad_ratios else 1.0)
+                    except Exception:
+                        history['val_conv_ratio'].append(1.0)
+                        history['val_adapt_conv_ratio'].append(1.0)
+
                 if (epoch + 1) % 10 == 0:
+                    conv_info = ""
+                    if history['val_conv_ratio']:
+                        zc = history['val_conv_ratio'][-1]
+                        ac = history['val_adapt_conv_ratio'][-1]
+                        conv_info = (f" | zs_conv: {zc:.3f} "
+                                     f"ad_conv: {ac:.3f}")
                     print(f"Epoch {epoch + 1:3d}/{self.config.num_meta_epochs} | "
                           f"meta_loss: {avg_meta_loss:.4f} | "
                           f"val_loss: {avg_val_loss:.4f} | "
                           f"zero-shot acc: {val_acc:.4f} | "
-                          f"adapted acc: {adapt_acc:.4f}")
+                          f"adapted acc: {adapt_acc:.4f}{conv_info}")
 
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
@@ -731,7 +996,10 @@ class MetaAMGAdapter:
 
         self.meta_params = copy.deepcopy(self.model.state_dict())
 
-        from neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
+        try:
+            from .neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
+        except ImportError:
+            from neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
         nn_config = _NC()
         self.graph_builder = MatrixGraphBuilder(nn_config)
 
@@ -877,11 +1145,60 @@ class MetaAMGSolver:
 
         self.n_traditional = 0
         self.n_adapted = 0
+        self.n_repaired = 0
+        self.n_validation_fallbacks = 0
         self.total_traditional_time = 0.0
         self.total_adapt_time = 0.0
+        self.validation_history = []
+        self._online_prev_A = None
+        self._online_prev_cf = None
+        self._online_x = None
 
     def set_adapter(self, adapter: MetaAMGAdapter):
         self.adapter = adapter
+
+    def reset_online_state(self):
+        """Forget the preceding physical trajectory."""
+        self._online_prev_A = None
+        self._online_prev_cf = None
+        self._online_x = None
+
+    def solve_step(self, A: sp.spmatrix, b: np.ndarray,
+                   x0: np.ndarray = None) -> np.ndarray:
+        """Solve one newly assembled matrix and retain state for the next step."""
+        A = A.tocsr()
+        x0 = x0 if x0 is not None else self._online_x
+        if self._online_prev_A is None or self.adapter is None:
+            t0 = time.time()
+            x = self._solve_traditional(A, b, x0)
+            self.total_traditional_time += time.time() - t0
+            self.n_traditional += 1
+            cf = self._extract_cf_labels(A)
+        else:
+            t0 = time.time()
+            coarse, _ = self.adapter.adapt(
+                self._online_prev_A, self._online_prev_cf, A)
+            self.total_adapt_time += time.time() - t0
+            self.n_adapted += 1
+            assessment = self._validate_transfer(A, coarse)
+            self.validation_history.append(assessment)
+            self.n_repaired += assessment.repaired_points
+            if assessment.accepted:
+                x = self._solve_with_cf(A, b, assessment.coarse,
+                                        assessment.fine, x0)
+                cf = np.zeros(A.shape[0], dtype=np.float32)
+                cf[assessment.coarse] = 1.0
+            else:
+                t0 = time.time()
+                x = self._solve_traditional(A, b, x0)
+                self.total_traditional_time += time.time() - t0
+                self.n_traditional += 1
+                self.n_validation_fallbacks += 1
+                cf = self._extract_cf_labels(A)
+        self._online_prev_A = A
+        self._online_prev_cf = cf
+        self._online_x = x
+        return x
 
     def solve_sequence(self,
                        matrices: List[sp.spmatrix],
@@ -898,43 +1215,31 @@ class MetaAMGSolver:
         Returns:
             solutions: [x_0, x_1, ..., x_K]
         """
+        self.reset_online_state()
         solutions = []
-        prev_A = None
-        prev_cf = None
-
-        for k, A in enumerate(matrices):
-            A = A.tocsr()
-
-            if k == 0 or self.adapter is None:
-                # 第一步或没有适配器：传统AMG
-                t0 = time.time()
-                x_k = self._solve_traditional(A, b, x0)
-                trad_time = time.time() - t0
-                self.total_traditional_time += trad_time
-                self.n_traditional += 1
-
-                # 提取C/F标记供下一步适配
-                prev_A = A
-                prev_cf = self._extract_cf_labels(A)
-            else:
-                # 用元学习适配
-                t0 = time.time()
-                coarse, fine = self.adapter.adapt(prev_A, prev_cf, A)
-                adapt_time = time.time() - t0
-                self.total_adapt_time += adapt_time
-                self.n_adapted += 1
-
-                x_k = self._solve_with_cf(A, b, coarse, fine, x0)
-
-                prev_A = A
-                prev_cf = np.zeros(A.shape[0], dtype=np.float32)
-                prev_cf[coarse] = 1.0
-
-            solutions.append(x_k)
-            if x_k is not None:
-                x0 = x_k
-
+        for A in matrices:
+            x0 = self.solve_step(A, b, x0)
+            solutions.append(x0)
         return solutions
+
+    def _validate_transfer(self, A: sp.spmatrix, coarse: List[int]):
+        """Validate a learned first level against the current operator."""
+        if not self.config.validate_transferred_hierarchy:
+            from solvers.hierarchy_transfer import HierarchyAssessment
+            fine = [i for i in range(A.shape[0]) if i not in set(coarse)]
+            return HierarchyAssessment(True, list(coarse), fine)
+
+        from solvers.hierarchy_transfer import HierarchyTransferValidator
+        validator = HierarchyTransferValidator(
+            self.amg_config,
+            strong_threshold=self.config.strong_threshold,
+            min_coarse_fraction=self.config.min_coarse_fraction,
+            max_coarse_fraction=self.config.max_transfer_coarse_fraction,
+            max_two_grid_factor=self.config.max_two_grid_factor,
+            max_operator_complexity=self.config.max_operator_complexity,
+            probes=self.config.validation_probes,
+        )
+        return validator.assess(A, coarse)
 
     def _solve_traditional(self, A, b, x0=None):
         """传统AMG求解 + 返回解"""
@@ -1032,6 +1337,8 @@ class MetaAMGSolver:
         return {
             'n_traditional': self.n_traditional,
             'n_adapted': self.n_adapted,
+            'n_repaired_points': self.n_repaired,
+            'n_validation_fallbacks': self.n_validation_fallbacks,
             'total_traditional_time': self.total_traditional_time,
             'total_adapt_time': self.total_adapt_time,
             'avg_traditional_time': (self.total_traditional_time /
@@ -1078,7 +1385,13 @@ class MetaAMG:
         """MAML元训练"""
         if train_tasks is None:
             print("Generating training data...")
-            gen = MatrixSequenceGenerator(self.config)
+            if self.config.training_data_source == 'stokes_picard':
+                gen = StokesPicardSequenceGenerator(self.config)
+            elif self.config.training_data_source == 'synthetic':
+                gen = MatrixSequenceGenerator(self.config)
+            else:
+                raise ValueError("training_data_source must be 'synthetic' or "
+                                 "'stokes_picard'")
             train_tasks, val_tasks = gen.generate_training_data(
                 num_sequences=num_sequences
             )
@@ -1101,6 +1414,11 @@ class MetaAMG:
                      x0: np.ndarray = None) -> np.ndarray:
         """求解单个矩阵（零样本）"""
         return self.solver._solve_traditional(A, b, x0)
+
+    def solve_online_step(self, A: sp.spmatrix, b: np.ndarray,
+                          x0: np.ndarray = None) -> np.ndarray:
+        """Stateful one-step interface for Picard/Newton solver integration."""
+        return self.solver.solve_step(A, b, x0)
 
     def get_stats(self) -> Dict:
         return self.solver.get_stats()
@@ -1147,10 +1465,17 @@ def demo_meta_amg():
 
     if history.get('val_adapt_accuracy'):
         print(f"\nFinal results:")
-        print(f"  Zero-shot accuracy: {history['val_accuracy'][-1]:.4f}")
-        print(f"  Adapted accuracy:   {history['val_adapt_accuracy'][-1]:.4f}")
-        print(f"  Adaptation gain:    "
-              f"{history['val_adapt_accuracy'][-1] - history['val_accuracy'][-1]:+.4f}")
+        print(f"  Zero-shot accuracy:     {history['val_accuracy'][-1]:.4f}")
+        print(f"  Adapted accuracy:       {history['val_adapt_accuracy'][-1]:.4f}")
+        gain = history['val_adapt_accuracy'][-1] - history['val_accuracy'][-1]
+        print(f"  Adaptation gain:        {gain:+.4f}")
+        if history.get('val_conv_ratio'):
+            zc = history['val_conv_ratio'][-1]
+            ac = history['val_adapt_conv_ratio'][-1]
+            print(f"  Zero-shot conv ratio:   {zc:.3f}")
+            print(f"  Adapted conv ratio:     {ac:.3f}")
+            cgain = zc - ac
+            print(f"  Convergence improve:    {cgain:+.3f}")
 
     # 测试：生成新的矩阵序列并对比
     print("\n[2] Testing on new sequence...")

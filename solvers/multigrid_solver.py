@@ -155,7 +155,9 @@ class AdaptiveCoarsening:
             diag = A[i, i]
             
             for j in range(n):
-                if i != j and abs(row[j]) > strong_threshold * abs(diag):
+                # Equality matters for common five-point Poisson stencils:
+                # |a_ij| = 0.25 |a_ii| should be treated as a strong edge.
+                if i != j and abs(row[j]) >= strong_threshold * abs(diag):
                     S[i, j] = 1
         
         # 使用改进的最大独立集算法
@@ -180,10 +182,11 @@ class AdaptiveCoarsening:
             neighbors = S[max_degree_idx].nonzero()[1]
             marked[neighbors] = True
         
-        # 第二遍：处理剩余点
-        for i in range(n):
-            if not marked[i]:
-                fine_points.append(i)
+        # All points not selected as coarse are fine points.  Neighbours were
+        # marked to exclude them from the independent-set selection; they do
+        # not disappear from the C/F partition.
+        coarse_set = set(coarse_points)
+        fine_points = [i for i in range(n) if i not in coarse_set]
         
         return coarse_points, fine_points
     

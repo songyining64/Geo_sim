@@ -16,7 +16,7 @@ Blankenbach 1989基准: 底部加热方腔, Ra=10^4~10^6, 等粘度或粘度对�
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import spsolve, lsmr
 import time
 import warnings
 from typing import Dict, List, Tuple, Optional, Callable
@@ -59,6 +59,9 @@ class StokesConfig:
 
     # AMG参数
     use_meta_amg: bool = False
+    meta_training_sequences: int = 20
+    meta_training_epochs: int = 20
+    meta_model_path: Optional[str] = None
 
     output_dir: str = './stokes_output'
 
@@ -509,8 +512,11 @@ class BlockStokesSolver:
         for k in range(max_iter):
             u = x[vel_idx]; p = x[p_idx]
             rhs_u = b_vel - B.T @ p
-            vel_solver = AlgebraicMultigridSolver(self.amg_config)
-            u_new = vel_solver.solve(A_vel, rhs_u)
+            if self.meta_amg is not None and self.meta_amg.is_trained:
+                u_new = self.meta_amg.solve_online_step(A_vel, rhs_u, u)
+            else:
+                vel_solver = AlgebraicMultigridSolver(self.amg_config)
+                u_new = vel_solver.solve(A_vel, rhs_u, u)
             div = B @ u_new
             dp = spsolve(Q, div)
             x[vel_idx] = u_new
@@ -790,12 +796,20 @@ class PicardStokesSolver:
     def _setup_meta_amg(self):
         """初始化Meta-AMG适配器"""
         try:
-            from meta_amg import MetaAMGConfig as MConfig, MetaAMG
-            mcfg = MConfig(min_matrix_size=64, max_matrix_size=2000,
-                          num_training_sequences=300, num_meta_epochs=30,
-                          inner_steps=3, hidden_dim=32, num_layers=2)
+            from gpu_acceleration.meta_amg import MetaAMGConfig as MConfig, MetaAMG
+            mcfg = MConfig(
+                training_data_source='stokes_picard',
+                stokes_nx=self.config.nx, stokes_ny=self.config.ny,
+                stokes_picard_iterations=min(8, self.config.max_picard_iterations),
+                num_training_sequences=self.config.meta_training_sequences,
+                num_meta_epochs=self.config.meta_training_epochs,
+                inner_steps=3, hidden_dim=32, num_layers=2,
+            )
             self.meta_amg = MetaAMG(mcfg)
-            self.meta_amg.train(num_sequences=300)
+            if self.config.meta_model_path:
+                self.meta_amg.load(self.config.meta_model_path)
+            else:
+                self.meta_amg.train(num_sequences=self.config.meta_training_sequences)
             print("Meta-AMG initialized for Picard solver")
         except Exception as e:
             warnings.warn(f"Meta-AMG setup failed: {e}. Using traditional AMG.")
@@ -814,6 +828,77 @@ class PicardStokesSolver:
 
         self.temperature = T_linear + perturbation
         self.temperature = np.clip(self.temperature, 0.0, 1.0)
+
+    def collect_picard_sequence(self, max_iterations: int = None,
+                                seed: int = 0) -> List[Dict]:
+        """Assemble one real nonlinear Stokes/Picard matrix trajectory.
+
+        The full constrained Stokes--temperature matrix is retained for
+        diagnostics.  ``matrix`` is its velocity block, the SPD elliptic block
+        to which AMG is actually applied in the block Stokes preconditioner.
+        This avoids training a scalar AMG model on the indefinite saddle-point
+        matrix while preserving the physical Picard evolution that produced it.
+        """
+        max_iterations = max_iterations or self.config.max_picard_iterations
+        rng_state = np.random.get_state()
+        np.random.seed(seed)
+        try:
+            self.initialize_temperature()
+        finally:
+            np.random.set_state(rng_state)
+
+        n_dofs = self.mesh.n_dofs
+        vel_indices = np.array(
+            [node * self.mesh.n_dofs_per_node + component
+             for node in range(self.mesh.n_nodes) for component in (0, 1)],
+            dtype=np.int64,
+        )
+        records = []
+        self.velocity = np.zeros(n_dofs)
+        strain_rate = self.advection.compute_strain_rate(self.velocity)
+        self.viscosity = self.viscosity_model.compute(self.temperature, strain_rate)
+
+        for iteration in range(max_iterations):
+            A_full = self.assembler.assemble(
+                self.viscosity, self.temperature, self.config.thermal_conductivity)
+            rhs = np.zeros(n_dofs)
+            A_full, rhs = self.bc_handler.apply(A_full, rhs)
+            A_velocity = A_full[vel_indices][:, vel_indices].tocsr()
+
+            x_old = self.velocity.copy()
+            try:
+                x = spsolve(A_full, rhs)
+                if not np.isfinite(x).all():
+                    raise ValueError("non-finite direct Stokes solution")
+            except Exception:
+                # Collection must be robust on marginal small meshes; LSMR
+                # still gives a physically coupled Picard update for the next
+                # assembled matrix.
+                x = lsmr(A_full, rhs, atol=1e-10, btol=1e-10)[0]
+
+            self.velocity = np.asarray(x)
+            strain_rate = self.advection.compute_strain_rate(self.velocity)
+            next_viscosity = self.viscosity_model.compute(
+                self.temperature, strain_rate)
+            residual = np.linalg.norm(self.velocity - x_old) / (
+                np.linalg.norm(self.velocity) + 1e-12)
+            records.append({
+                'matrix': A_velocity,
+                'full_matrix': A_full,
+                'rhs': rhs,
+                'viscosity': self.viscosity.copy(),
+                'temperature': self.temperature.copy(),
+                'strain_rate': strain_rate.copy(),
+                'velocity_indices': vel_indices.copy(),
+                'iteration': iteration,
+                'picard_residual': float(residual),
+                'rayleigh': self.config.rayleigh,
+                'viscosity_contrast': self.config.viscosity_contrast,
+            })
+            self.viscosity = next_viscosity
+            if residual < self.config.picard_tolerance and iteration > 0:
+                break
+        return records
 
     def solve_picard(self) -> Dict:
         """
@@ -905,17 +990,12 @@ class PicardStokesSolver:
 
     def _solve_with_amg(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
         """AMG求解 — 自动用Numba装配的速度块加速"""
-        if self._numba_asm is not None:
-            # 从Numba装配的速度块 + Python装配的其余构建块求解器
-            return _solve_with_amg_blocked(self, A, b)
-        solver = AlgebraicMultigridSolver(self.amg_config)
-        return solver.solve(A, b)
+        # Full Stokes is indefinite; AMG belongs on the SPD velocity block.
+        return _solve_with_amg_blocked(self, A, b)
 
     def _solve_with_meta_amg(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
         """Meta-AMG求解 (适配模式)"""
-        if self.meta_amg is not None:
-            return self.meta_amg.solve(A, b)
-        return self._solve_with_amg(A, b)
+        return _solve_with_amg_blocked(self, A, b)
 
     def _compute_nusselt(self) -> float:
         """计算表面Nusselt数"""
