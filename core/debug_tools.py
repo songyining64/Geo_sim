@@ -44,33 +44,25 @@ except ImportError:
 class DebugConfig:
     """调试配置类"""
     
-    # 监控设置
-    monitoring:
-        enabled: bool = True
-        update_interval: float = 1.0  # 更新间隔 (秒)
-        save_history: bool = True
-        max_history_size: int = 1000
+    monitoring_enabled: bool = True
+    monitoring_update_interval: float = 1.0
+    monitoring_save_history: bool = True
+    monitoring_max_history_size: int = 1000
     
-    # 可视化设置
-    visualization:
-        realtime_plots: bool = True
-        save_plots: bool = True
-        plot_format: str = "png"
-        dpi: int = 300
+    vis_realtime_plots: bool = True
+    vis_save_plots: bool = True
+    vis_plot_format: str = "png"
+    vis_dpi: int = 300
     
-    # 错误诊断设置
-    error_diagnosis:
-        enabled: bool = True
-        detailed_traceback: bool = True
-        save_error_logs: bool = True
-        error_log_dir: str = "./error_logs"
+    error_diagnosis_enabled: bool = True
+    error_detailed_traceback: bool = True
+    error_save_error_logs: bool = True
+    error_log_dir: str = "./error_logs"
     
-    # 性能分析设置
-    performance_analysis:
-        enabled: bool = True
-        profile_functions: bool = True
-        memory_tracking: bool = True
-        timing_breakdown: bool = True
+    perf_enabled: bool = True
+    perf_profile_functions: bool = True
+    perf_memory_tracking: bool = True
+    perf_timing_breakdown: bool = True
 
 
 @dataclass
@@ -152,7 +144,7 @@ class RealTimeMonitor:
         while self.is_monitoring:
             try:
                 self._update_metrics()
-                time.sleep(self.config.monitoring.update_interval)
+                time.sleep(self.config.monitoring_update_interval)
             except Exception as e:
                 warnings.warn(f"监控循环出错: {str(e)}")
                 break
@@ -176,7 +168,7 @@ class RealTimeMonitor:
         performance_metrics = self._collect_performance_metrics()
         
         # 记录历史
-        if self.config.monitoring.save_history:
+        if self.config.monitoring_save_history:
             self.convergence_history.append(ConvergenceMetrics(
                 iteration=len(self.convergence_history),
                 timestamp=current_time,
@@ -187,7 +179,7 @@ class RealTimeMonitor:
             ))
             
             # 限制历史记录大小
-            if len(self.convergence_history) > self.config.monitoring.max_history_size:
+            if len(self.convergence_history) > self.config.monitoring_max_history_size:
                 self.convergence_history.pop(0)
         
         self.last_update = current_time
@@ -297,7 +289,7 @@ class ErrorDiagnostic:
             'timestamp': time.time(),
             'error_type': type(error).__name__,
             'error_message': str(error),
-            'traceback': traceback.format_exc() if self.config.error_diagnosis.detailed_traceback else None,
+            'traceback': traceback.format_exc() if self.config.error_detailed_traceback else None,
             'context': context or {},
             'diagnosis': self._run_diagnosis(str(error)),
             'suggestions': self._generate_suggestions(error, context)
@@ -307,7 +299,7 @@ class ErrorDiagnostic:
         self.error_logs.append(error_info)
         
         # 保存错误日志
-        if self.config.error_diagnosis.save_error_logs:
+        if self.config.error_save_error_logs:
             self._save_error_log(error_info)
         
         return error_info
@@ -354,7 +346,7 @@ class ErrorDiagnostic:
     def _save_error_log(self, error_info: Dict[str, Any]):
         """保存错误日志"""
         try:
-            log_dir = Path(self.config.error_diagnosis.error_log_dir)
+            log_dir = Path(self.config.error_log_dir)
             log_dir.mkdir(exist_ok=True)
             
             timestamp = int(error_info['timestamp'])
@@ -662,8 +654,8 @@ class AdvancedVisualizer:
         
         for name, fig in self.figures.items():
             try:
-                filepath = output_path / f"{name}.{self.config.visualization.plot_format}"
-                fig.savefig(filepath, dpi=self.config.visualization.dpi, 
+                filepath = output_path / f"{name}.{self.config.vis_plot_format}"
+                fig.savefig(filepath, dpi=self.config.vis_dpi, 
                            bbox_inches='tight')
                 print(f"图表已保存: {filepath}")
             except Exception as e:
@@ -725,7 +717,7 @@ class DebugManager:
         self.monitor.stop_monitoring()
         
         # 保存所有图表
-        if self.config.visualization.save_plots:
+        if self.config.vis_save_plots:
             self.visualizer.save_all_plots()
         
         print("🔍 调试模式已停止")

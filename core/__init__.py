@@ -7,6 +7,8 @@
 同时提供增强的调试与可视化工具，支持实时监控、错误诊断和性能分析。
 """
 
+import warnings
+
 from .unified_api import (
     # 配置类
     SimulationConfig,
@@ -25,31 +27,33 @@ from .unified_api import (
     load_config_from_template
 )
 
-from .geodynamic_simulation import (
-    # 地质动力学仿真配置
-    GeodynamicConfig,
-    
-    # 主要仿真类
-    GeodynamicSimulation,
-    
-    # 便捷函数
-    create_mantle_convection_simulation,
-    create_lithospheric_deformation_simulation
-)
+try:
+    from .geodynamic_simulation import (
+        GeodynamicConfig,
+        GeodynamicSimulation,
+        create_mantle_convection_simulation,
+        create_lithospheric_deformation_simulation
+    )
+    HAS_GEODYNAMIC = True
+except ImportError as e:
+    HAS_GEODYNAMIC = False
+    warnings.warn(f"geodynamic_simulation module not available: {e}")
 
-# 新增：完整接口演示模块
-from .complete_interface_demo import (
-    # 演示函数
-    demo_basic_simulation,
-    demo_adaptive_mesh_refinement,
-    demo_gpu_acceleration,
-    demo_visualization,
-    demo_multi_physics_coupling,
-    demo_complete_workflow,
-    
-    # 主函数
-    main as run_complete_demo
-)
+# 完整接口演示模块（如果可用）
+try:
+    from .complete_interface_demo import (
+        demo_basic_simulation,
+        demo_adaptive_mesh_refinement,
+        demo_gpu_acceleration,
+        demo_visualization,
+        demo_multi_physics_coupling,
+        demo_complete_workflow,
+        main as run_complete_demo
+    )
+    HAS_COMPLETE_DEMO = True
+except ImportError:
+    HAS_COMPLETE_DEMO = False
+    warnings.warn("complete_interface_demo module not available.")
 
 from .debug_tools import (
     # 配置类

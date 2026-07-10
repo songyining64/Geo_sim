@@ -20,17 +20,55 @@ from scipy.sparse.linalg import spsolve, cg, gmres
 
 # 核心模块导入
 from .unified_api import SimulationConfig, SimulationResult, BaseSimulator
-from ..finite_elements.mesh_generation import AdaptiveMesh, MeshCell
-from ..finite_elements.boundary_conditions import DirichletBC, NeumannBC, RobinBC, BoundaryAssembly
-from ..materials import Material, MaterialRegistry
-from ..solvers.multigrid_solver import MultigridSolver
-from ..solvers.multiphysics_coupling_solver import MultiphysicsCouplingSolver
-from ..time_integration.advanced_integrators import ImplicitTimeIntegrator
-from ..parallel.advanced_parallel_solver_v2 import AdvancedParallelSolver
+
+try:
+    from ..finite_elements.mesh_generation import AdaptiveMesh, MeshCell
+    from ..finite_elements.boundary_conditions import DirichletBC, NeumannBC, RobinBC, BoundaryAssembly
+    from ..materials import Material, MaterialRegistry
+    from ..solvers.multigrid_solver import MultigridSolver
+    from ..solvers.multiphysics_coupling_solver import MultiphysicsCouplingSolver
+    from ..time_integration.time_integrators import ImplicitTimeIntegrator
+    from ..parallel.advanced_parallel_solver_v2 import AdvancedParallelSolver
+    _CORE_IMPORTS_OK = True
+except ImportError:
+    try:
+        from finite_elements.mesh_generation import AdaptiveMesh, MeshCell
+    except ImportError:
+        AdaptiveMesh = None
+        MeshCell = None
+    try:
+        from finite_elements.boundary_conditions import DirichletBC, NeumannBC, RobinBC, BoundaryAssembly
+    except ImportError:
+        DirichletBC = None
+        NeumannBC = None
+        RobinBC = None
+        BoundaryAssembly = None
+    try:
+        from materials import Material, MaterialRegistry
+    except ImportError:
+        Material = None
+        MaterialRegistry = None
+    try:
+        from solvers.multigrid_solver import MultigridSolver
+    except ImportError:
+        MultigridSolver = None
+    try:
+        from solvers.multiphysics_coupling_solver import MultiphysicsCouplingSolver
+    except ImportError:
+        MultiphysicsCouplingSolver = None
+    try:
+        from time_integration.time_integrators import ImplicitTimeIntegrator
+    except ImportError:
+        ImplicitTimeIntegrator = None
+    try:
+        from parallel.advanced_parallel_solver_v2 import AdvancedParallelSolver
+    except Exception:
+        AdvancedParallelSolver = None
+    _CORE_IMPORTS_OK = False
 
 # 新增模块导入
 try:
-    from ..adaptivity.advanced_mesh import AdaptiveMeshRefiner
+    from ..adaptivity.mesh_refinement import AdaptiveMeshRefiner
     from ..adaptivity.error_estimator import ErrorEstimator
     from ..adaptivity.mesh_refinement import MeshRefinement
     HAS_ADAPTIVITY = True
@@ -56,7 +94,7 @@ except ImportError:
     warnings.warn("Visualization modules not available. Plotting features will be limited.")
 
 try:
-    from ..coupling.thermal_mechanical import ThermalMechanicalCoupling
+    from ..coupling.thermal_mechanical import ThermoMechanicalCoupling
     from ..coupling.fluid_solid import FluidSolidCoupling
     from ..coupling.chemical_mechanical import ChemicalMechanicalCoupling
     HAS_COUPLING = True
@@ -65,7 +103,7 @@ except ImportError:
     warnings.warn("Coupling modules not available. Multi-physics coupling will be limited.")
 
 try:
-    from ..ensemble.multi_fidelity import MultiFidelitySimulator
+    from ..ensemble.multi_fidelity import MultiFidelityTrainer
     from ..gpu_acceleration.cuda_acceleration import CUDAAccelerator
     HAS_ADVANCED_FEATURES = True
 except ImportError:
@@ -202,6 +240,30 @@ class GeodynamicSimulation(BaseSimulator):
         self.strain_field: Optional[np.ndarray] = None
         self.stress_field: Optional[np.ndarray] = None
         
+        # 时间步进属性
+        self.current_time = 0.0
+        self.end_time = float('inf')
+        self.time_step_count = 0
+        self.time_step = self.config.numerical_params.get('dt', 0.01)
+        self.solution_history: List[np.ndarray] = []
+        self.time_step_history: List[float] = []
+        self.displacement_field: Optional[np.ndarray] = None
+        self.previous_displacement: Optional[np.ndarray] = None
+        self.current_solution: Optional[np.ndarray] = None
+        
+        # 系统矩阵和右端项
+        self.system_matrix: Optional[Any] = None
+        self.system_rhs: Optional[np.ndarray] = None
+        
+        # 收敛历史
+        self.convergence_history: List[float] = []
+        
+        # 求解器类型
+        self.solver_type = 'multigrid'
+        
+        # 多重网格层次
+        self.multigrid_hierarchy: Optional[Dict] = None
+        
         # 求解器状态
         self.is_assembled = False
         self.is_linearized = False
@@ -252,7 +314,7 @@ class GeodynamicSimulation(BaseSimulator):
         # 初始化耦合模块
         if HAS_COUPLING:
             try:
-                self.thermal_mechanical_coupling = ThermalMechanicalCoupling()
+                self.thermal_mechanical_coupling = ThermoMechanicalCoupling()
                 self.fluid_solid_coupling = FluidSolidCoupling()
                 print("多物理场耦合模块已初始化")
             except Exception as e:
@@ -261,7 +323,7 @@ class GeodynamicSimulation(BaseSimulator):
         # 初始化高级功能
         if HAS_ADVANCED_FEATURES:
             try:
-                self.multi_fidelity_simulator = MultiFidelitySimulator()
+                self.multi_fidelity_simulator = MultiFidelityTrainer()
                 self.gpu_accelerator = CUDAAccelerator()
                 print("高级功能模块已初始化")
             except Exception as e:
@@ -740,13 +802,14 @@ class GeodynamicSimulation(BaseSimulator):
                 raise ValueError("必须先创建网格")
             
             if solver_type == "auto":
-                # 根据问题规模自动选择求解器
                 if len(self.mesh.nodes) > 10000:
                     solver_type = "parallel"
                 elif len(self.materials) > 1:
                     solver_type = "multiphysics"
                 else:
                     solver_type = "multigrid"
+            
+            self.solver_type = solver_type
             
             if solver_type == "multigrid":
                 self.solver = MultigridSolver(**kwargs)
@@ -783,7 +846,7 @@ class GeodynamicSimulation(BaseSimulator):
                 else:
                     method = "crank_nicolson"
             
-            self.time_integrator = ImplicitTimeIntegrator(method=method, **kwargs)
+            self.time_integrator = ImplicitTimeIntegrator(order=2, **kwargs)
             print(f"成功设置时间积分器: {method}")
             return self
             
@@ -1283,7 +1346,7 @@ class GeodynamicSimulation(BaseSimulator):
         # 假设解向量包含位移场
         if len(solution) == len(self.mesh.nodes):
             # 更新位移场
-            self.displacement_field = solution.reshape(-1, self.mesh.dimension)
+            self.displacement_field = solution.reshape(-1, self.mesh.dim)
             
             # 计算应变场（简化）
             self.strain_field = self._compute_strain_from_displacement(self.displacement_field)
@@ -1315,7 +1378,7 @@ class GeodynamicSimulation(BaseSimulator):
         self.temperature_field = thermal_solution
         
         # 更新位移场
-        self.displacement_field = mechanical_solution.reshape(-1, self.mesh.dimension)
+        self.displacement_field = mechanical_solution.reshape(-1, self.mesh.dim)
         
         # 计算应变和应力场
         self.strain_field = self._compute_strain_from_displacement(self.displacement_field)
@@ -1347,42 +1410,37 @@ class GeodynamicSimulation(BaseSimulator):
     
     def _check_convergence(self) -> bool:
         """检查收敛性"""
+        tolerance = self.config.numerical_params.get('tolerance', 1e-6)
+        dt = self.config.numerical_params.get('dt', 0.01)
+        
         if not hasattr(self, 'convergence_history'):
             self.convergence_history = []
         
-        # 计算当前残差
         if hasattr(self, 'system_matrix') and hasattr(self, 'system_rhs'):
-            if hasattr(self, 'current_solution'):
+            if hasattr(self, 'current_solution') and self.current_solution is not None:
                 residual = np.linalg.norm(self.system_matrix @ self.current_solution - self.system_rhs)
                 self.convergence_history.append(residual)
                 
-                # 检查收敛性
                 if len(self.convergence_history) >= 2:
-                    # 相对残差变化
                     relative_change = abs(residual - self.convergence_history[-2]) / (abs(self.convergence_history[-2]) + 1e-12)
                     
-                    # 绝对残差
-                    if residual < self.config.tolerance:
-                        print(f"收敛：绝对残差 {residual:.2e} < {self.config.tolerance:.2e}")
+                    if residual < tolerance:
+                        print(f"收敛：绝对残差 {residual:.2e} < {tolerance:.2e}")
                         return True
                     
-                    # 相对残差变化
-                    if relative_change < self.config.tolerance * 0.1:
-                        print(f"收敛：相对残差变化 {relative_change:.2e} < {self.config.tolerance * 0.1:.2e}")
+                    if relative_change < tolerance * 0.1:
+                        print(f"收敛：相对残差变化 {relative_change:.2e} < {tolerance * 0.1:.2e}")
                         return True
                     
-                    # 检查是否发散
                     if residual > 1e6 or np.isnan(residual) or np.isinf(residual):
                         print(f"发散：残差 {residual:.2e}")
                         return False
         
-        # 检查时间步收敛性
-        if hasattr(self, 'time_step_history'):
-            if len(self.time_step_history) >= 2:
-                time_change = abs(self.time_step_history[-1] - self.time_step_history[-2])
-                if time_change < self.config.time_step * 1e-6:
-                    print("时间步收敛")
-                    return True
+        if hasattr(self, 'time_step_history') and len(self.time_step_history) >= 2:
+            time_change = abs(self.time_step_history[-1] - self.time_step_history[-2])
+            if time_change < dt * 1e-6:
+                print("时间步收敛")
+                return True
         
         return False
     
@@ -1520,7 +1578,7 @@ class GeodynamicSimulation(BaseSimulator):
         density = material_props['density']
         
         # 重力分量（假设y方向向下）
-        if self.mesh.dimension >= 2:
+        if self.mesh.dim >= 2:
             force_y = -density * gravity * 0.1  # 简化系数
         else:
             force_y = 0.0
@@ -1782,7 +1840,10 @@ def create_mantle_convection_simulation(nx: int = 50, ny: int = 50,
                     x_range=(0.0, aspect_ratio), y_range=(0.0, 1.0))
     
     # 添加材料
-    from ..materials import create_mantle_material
+    try:
+        from ..materials import create_mantle_material
+    except ImportError:
+        from materials import create_mantle_material
     mantle_material = create_mantle_material()
     sim.add_material(mantle_material)
     
@@ -1840,7 +1901,10 @@ def create_lithospheric_deformation_simulation(nx: int = 40, ny: int = 40) -> Ge
                     x_range=(0.0, 1000.0), y_range=(0.0, 100.0))
     
     # 添加材料
-    from ..materials import create_crust_material
+    try:
+        from ..materials import create_crust_material
+    except ImportError:
+        from materials import create_crust_material
     crust_material = create_crust_material()
     sim.add_material(crust_material)
     

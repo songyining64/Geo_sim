@@ -811,3 +811,28 @@ def benchmark_multigrid_solvers(A: sp.spmatrix, b: np.ndarray,
         print(f"   最终残差: {residual_norm:.2e}")
     
     return results
+
+
+class MultigridSolver:
+    """多重网格求解器适配器"""
+
+    def __init__(self, config=None, **kwargs):
+        if config is None:
+            config = MultigridConfig(**{k: v for k, v in kwargs.items()
+                                        if k in MultigridConfig.__dataclass_fields__})
+        elif kwargs:
+            for k, v in kwargs.items():
+                if k in MultigridConfig.__dataclass_fields__:
+                    setattr(config, k, v)
+        self._solver = AlgebraicMultigridSolver(config)
+        self.config = self._solver.config if hasattr(self._solver, 'config') else config
+
+    def setup(self, A, b):
+        return self._solver.setup(A, b)
+
+    def solve(self, A, b, x0=None):
+        return self._solver.solve(A, b)
+
+    @property
+    def performance_stats(self):
+        return self._solver.performance_stats

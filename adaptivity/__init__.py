@@ -3,11 +3,11 @@
 """
 
 from .error_estimator import ErrorEstimator
-from .mesh_refinement import MeshRefiner
-from .adaptive_solver import AdaptiveSolver
+from .mesh_refinement import MeshRefinement
+from .advanced_mesh import AdaptiveMeshRefiner
 
 __all__ = [
     'ErrorEstimator',
-    'MeshRefiner', 
-    'AdaptiveSolver'
+    'MeshRefinement',
+    'AdaptiveMeshRefiner'
 ] 

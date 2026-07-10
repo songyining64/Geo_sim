@@ -4,10 +4,10 @@
 
 from .domain_decomposition import DomainDecomposer
 from .parallel_solvers import ParallelSolver
-from .load_balancer import LoadBalancer
+from .advanced_parallel_solver_v2 import AdvancedParallelSolver
 
 __all__ = [
     'DomainDecomposer',
     'ParallelSolver',
-    'LoadBalancer'
+    'AdvancedParallelSolver'
 ] 

@@ -9,6 +9,8 @@
 5. 大规模可扩展性：分布式稀疏存储+多级域分解
 """
 
+from __future__ import annotations
+
 import numpy as np
 import scipy.sparse as sp
 from typing import Dict, List, Tuple, Optional, Union, Any, Callable

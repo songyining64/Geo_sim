@@ -43,13 +43,17 @@ from .physics_integrated_ml import (
     HybridSolver
 )
 
-# 地质示例
-from .geological_examples import (
-    GeologicalExamples,
-    ReservoirSimulation,
-    SeismicInversion,
-    Geomechanics
-)
+# 地质示例（如果可用）
+try:
+    from .geological_examples import (
+        GeologicalExamples,
+        ReservoirSimulation,
+        SeismicInversion,
+        Geomechanics
+    )
+    HAS_GEOLOGICAL_EXAMPLES = True
+except ImportError:
+    HAS_GEOLOGICAL_EXAMPLES = False
 
 # 机器学习优化
 from .ml_optimization import (
@@ -66,20 +70,28 @@ from .parallel_computing import (
     MultiGPUManager
 )
 
-# 强化学习
-from .rl_optimization_demo import (
-    RLOptimizer,
-    Environment,
-    Agent,
-    PolicyNetwork
-)
+# 强化学习（如果可用）
+try:
+    from .rl_optimization_demo import (
+        RLOptimizer,
+        Environment,
+        Agent,
+        PolicyNetwork
+    )
+    HAS_RL_OPTIMIZATION = True
+except ImportError:
+    HAS_RL_OPTIMIZATION = False
 
-# 强化学习+图神经网络
-from .rl_gnn_demo import (
-    RLGNNDemo,
-    GNNEnvironment,
-    GNNPolicy
-)
+# 强化学习+图神经网络（如果可用）
+try:
+    from .rl_gnn_demo import (
+        RLGNNDemo,
+        GNNEnvironment,
+        GNNPolicy
+    )
+    HAS_RL_GNN = True
+except ImportError:
+    HAS_RL_GNN = False
 
 # 图神经网络
 from .geodynamics_gnn import (
@@ -89,20 +101,28 @@ from .geodynamics_gnn import (
     PhysicsGNN
 )
 
-# 图神经网络+物理信息网络
-from .gnn_pinn_integration_demo import (
-    GNNPINNIntegration,
-    HybridGNNPINN,
-    PhysicsGNN
-)
+# 图神经网络+物理信息网络（如果可用）
+try:
+    from .gnn_pinn_integration_demo import (
+        GNNPINNIntegration,
+        HybridGNNPINN,
+        PhysicsGNN as PGNN
+    )
+    HAS_GNN_PINN = True
+except ImportError:
+    HAS_GNN_PINN = False
 
-# 元学习
-from .meta_learning_demo import (
-    MetaLearningDemo,
-    MetaLearner,
-    TaskGenerator,
-    FewShotLearning
-)
+# 元学习（如果可用）
+try:
+    from .meta_learning_demo import (
+        MetaLearningDemo,
+        MetaLearner,
+        TaskGenerator,
+        FewShotLearning
+    )
+    HAS_META_LEARNING = True
+except ImportError:
+    HAS_META_LEARNING = False
 
 # 自适应约束
 from .adaptive_constraints_demo import (
@@ -111,16 +131,24 @@ from .adaptive_constraints_demo import (
     DynamicConstraints
 )
 
-# 测试模块
-from .test_geological_optimizations import (
-    test_geological_optimizations,
-    run_optimization_tests
-)
+# 测试模块（如果可用）
+try:
+    from .test_geological_optimizations import (
+        test_geological_optimizations,
+        run_optimization_tests
+    )
+    HAS_GEO_OPT_TESTS = True
+except ImportError:
+    HAS_GEO_OPT_TESTS = False
 
-from .test_surrogate_extensions import (
-    test_surrogate_extensions,
-    run_surrogate_tests
-)
+try:
+    from .test_surrogate_extensions import (
+        test_surrogate_extensions,
+        run_surrogate_tests
+    )
+    HAS_SURROGATE_TESTS = True
+except ImportError:
+    HAS_SURROGATE_TESTS = False
 
 # 版本信息
 __version__ = "2.0.0"
