@@ -403,13 +403,9 @@ class BlockStokesSolver:
     """
     块Stokes求解器 — 用AMG解速度块 + CG解压力Schur补。
 
-    将全耦合系统 [A B^T; B 0] [u; p] = [f; 0] 分解为:
-      1. AMG求解速度块: A u^{k+1} = f - B^T p^k
-      2. CG求解Schur补: S δp = B u^{k+1}, S ≈ B diag(A)^{-1} B^T
-      3. 压力更新: p^{k+1} = p^k + δp
-
-    优势: 速度块是标量扩散型矩阵 → AMG效率高
-    速度: 比直接解4DOF耦合系统快5-20x
+    支持Meta-AMG在线适配:
+      - 第一个Picard迭代: 传统AMG (建立初始C/F)
+      - 后续迭代: Meta-AMG从上一矩阵的C/F适配到当前矩阵
     """
 
     def __init__(self, mesh: StokesMesh, config: StokesConfig):
@@ -424,14 +420,17 @@ class BlockStokesSolver:
             max_levels=8, tolerance=1e-10, max_iterations=200
         )
         self.meta_amg = None
-        self._prev_matrices = []
-        self._Q_matrix = None  # 缓存的压力质量矩阵
+        self._prev_A_vel = None          # 上一个Picard步的速度块矩阵
+        self._prev_cf_labels = None      # 上一个速度块的C/F标签
+        self._Q_matrix = None
+        self._prev_viscosity = None
+        self._picard_step = 0
 
     def set_meta_amg(self, meta_amg):
         self.meta_amg = meta_amg
 
     def _viscosity_changed_significantly(self, viscosity: np.ndarray) -> bool:
-        if not hasattr(self, '_prev_viscosity') or self._prev_viscosity is None:
+        if self._prev_viscosity is None:
             return True
         rel_change = np.max(np.abs(viscosity - self._prev_viscosity) /
                            (np.abs(self._prev_viscosity) + 1e-12))
@@ -479,7 +478,7 @@ class BlockStokesSolver:
 
     def solve_with_velocity_block(self, A_full, b_full, A_vel_prebuilt,
                                   temperature, viscosity, x0=None):
-        """同上, 但接受预装的速度块避免重复装配"""
+        """块求解, 接受预装的速度块 + Meta-AMG在线适配"""
         n_nodes = self.mesh.n_nodes
         nodal_dofs = 4
         n_dofs = n_nodes * nodal_dofs
@@ -489,34 +488,60 @@ class BlockStokesSolver:
         else:
             x = x0.copy()
 
-        # 提取速度块 (用预装的或从全矩阵提取)
+        # 提取速度块
         if A_vel_prebuilt is not None:
             A_vel = A_vel_prebuilt
-            b_vel = b_full[[i for i in range(n_dofs) if i % nodal_dofs < 2]]
+            vel_idx = []; [vel_idx.extend([i*nodal_dofs, i*nodal_dofs+1]) for i in range(n_nodes)]
+            b_vel = b_full[vel_idx]
         else:
             vel_idx = []; [vel_idx.extend([i*nodal_dofs, i*nodal_dofs+1]) for i in range(n_nodes)]
             A_vel = A_full[np.ix_(vel_idx, vel_idx)]
             b_vel = b_full[vel_idx]
 
-        # 散度算子 B
         p_idx = [i * nodal_dofs + 2 for i in range(n_nodes)]
-        vel_idx = []; [vel_idx.extend([i*nodal_dofs, i*nodal_dofs+1]) for i in range(n_nodes)]
         B = A_full[np.ix_(p_idx, vel_idx)]
 
-        # 压力质量矩阵
         if self._Q_matrix is None:
             self._Q_matrix = self.assembler.assemble_pressure_mass_matrix(viscosity)
         Q = self._Q_matrix
 
+        # ── Meta-AMG 在线适配 (核心) ──
+        # 第一个Picard迭代: 传统AMG → 记录C/F
+        # 后续迭代: Meta-AMG 从上一矩阵适配 → 快速获取C/F
+        if self.meta_amg is not None and self._prev_A_vel is not None:
+            try:
+                coarse, fine = self.meta_amg.adapter.adapt(
+                    self._prev_A_vel, self._prev_cf_labels, A_vel,
+                    adapt_steps=3
+                )
+            except Exception:
+                coarse, fine = None, None
+        else:
+            coarse, fine = None, None
+
+        # ── AMG求解速度块 ──
+        if coarse is not None and len(coarse) > 0:
+            # 用适配的C/F构建AMG
+            vel_solver = self._build_amg_with_cf(A_vel, coarse, fine)
+        else:
+            vel_solver = AlgebraicMultigridSolver(self.amg_config)
+
+        # 保存当前状态供下一步Meta-AMG适配
+        self._prev_A_vel = A_vel.copy()
+        if coarse is not None:
+            self._prev_cf_labels = np.zeros(A_vel.shape[0], dtype=np.float32)
+            self._prev_cf_labels[coarse] = 1.0
+        else:
+            # 从传统AMG提取C/F
+            self._prev_cf_labels = self._extract_cf_from_solver(vel_solver, A_vel)
+        self._picard_step += 1
+
+        # ── Uzawa迭代 ──
         max_iter = 15
         for k in range(max_iter):
             u = x[vel_idx]; p = x[p_idx]
             rhs_u = b_vel - B.T @ p
-            if self.meta_amg is not None and self.meta_amg.is_trained:
-                u_new = self.meta_amg.solve_online_step(A_vel, rhs_u, u)
-            else:
-                vel_solver = AlgebraicMultigridSolver(self.amg_config)
-                u_new = vel_solver.solve(A_vel, rhs_u, u)
+            u_new = vel_solver.solve(A_vel, rhs_u)
             div = B @ u_new
             dp = spsolve(Q, div)
             x[vel_idx] = u_new
@@ -525,6 +550,32 @@ class BlockStokesSolver:
                 break
 
         return x
+
+    def _build_amg_with_cf(self, A_vel, coarse, fine):
+        """用给定的C/F构建AMG求解器"""
+        vel_solver = AlgebraicMultigridSolver.__new__(AlgebraicMultigridSolver)
+        vel_solver.config = self.amg_config
+        vel_solver.levels = [{'matrix': A_vel, 'size': A_vel.shape[0], 'level': 0}]
+        P = vel_solver._build_advanced_interpolation_operator(A_vel, coarse, fine)
+        vel_solver.interpolation_operators = [P]
+        vel_solver.restriction_operators = [P.T]
+        coarse_A = P.T @ A_vel @ P
+        vel_solver.levels.append({'matrix': coarse_A, 'size': coarse_A.shape[0], 'level': 1})
+        vel_solver.is_setup = True
+        return vel_solver
+
+    @staticmethod
+    def _extract_cf_from_solver(solver, A):
+        """从AMG求解器提取C/F标记"""
+        from solvers.multigrid_solver import AdaptiveCoarsening
+        n = A.shape[0]
+        labels = np.zeros(n, dtype=np.float32)
+        try:
+            coarse, fine = AdaptiveCoarsening.algebraic_coarsening(A, 0.25)
+            labels[coarse] = 1.0
+        except Exception:
+            labels[:n//3] = 1.0
+        return labels
         n_dofs = n_nodes * nodal_dofs
 
         if x0 is None:
@@ -581,16 +632,17 @@ class BlockStokesSolver:
 
 # 给 PicardStokesSolver 加上块求解器支持
 def _solve_with_amg_blocked(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
-    """块AMG求解 (自动用Numba装配速度块)"""
+    """块AMG求解 — 自动用Numba装配速度块 + Meta-AMG在线适配"""
     if not hasattr(self, '_block_solver'):
         self._block_solver = BlockStokesSolver(self.mesh, self.config)
-        if self.meta_amg is not None:
-            self._block_solver.set_meta_amg(self.meta_amg)
 
-    # 用Numba装配速度块 (比Python版快10万倍)
+    # 每次Picard迭代前, 注入最新的Meta-AMG引用
+    if self.meta_amg is not None:
+        self._block_solver.set_meta_amg(self.meta_amg)
+
+    # 用Numba装配速度块
     if self._numba_asm is not None:
         A_vel = self._numba_asm.assemble_velocity_block(self.viscosity)
-        # 直接在BlockStokesSolver上用速度块求解
         return self._block_solver.solve_with_velocity_block(
             A, b, A_vel, self.temperature, self.viscosity)
     else:
