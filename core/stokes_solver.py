@@ -870,7 +870,8 @@ class PicardStokesSolver:
         return nu
 
     def run(self, n_steps: int = None, verbose: bool = True,
-            adaptive: bool = False, refine_interval: int = 20) -> Dict:
+            adaptive: bool = False, refine_interval: int = 20,
+            show_progress: bool = True) -> Dict:
         """
         运行完整的地幔对流仿真。
 
@@ -879,6 +880,7 @@ class PicardStokesSolver:
             verbose: 是否打印进度
             adaptive: 是否启用自适应网格细化
             refine_interval: 每隔多少步检查是否需要细化
+            show_progress: 是否显示tqdm进度条
         """
         if n_steps is None:
             n_steps = self.config.max_time_steps
@@ -890,7 +892,6 @@ class PicardStokesSolver:
             'viscosity_max': [], 'picard_iterations': [],
         }
 
-        # 自适应细化
         if adaptive:
             from adaptivity.error_estimator import ErrorEstimator
             from adaptivity.mesh_refinement import MeshRefinement
@@ -898,6 +899,18 @@ class PicardStokesSolver:
             self._mesh_refiner = MeshRefinement()
 
         t_start = time.time()
+
+        # 进度条
+        pbar = None
+        if show_progress:
+            try:
+                from tqdm import tqdm
+                pbar = tqdm(total=n_steps, desc='Simulating',
+                            unit='step', ncols=80,
+                            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} '
+                                       '[{elapsed}<{remaining}, {rate_fmt}]')
+            except ImportError:
+                pass
 
         for step in range(n_steps):
             stats = self.solve_timestep()
@@ -907,6 +920,14 @@ class PicardStokesSolver:
             history['viscosity_min'].append(stats['viscosity_range'][0])
             history['viscosity_max'].append(stats['viscosity_range'][1])
             history['picard_iterations'].append(stats['n_iterations'])
+
+            # 更新进度条
+            if pbar is not None:
+                pbar.set_postfix({
+                    'Nu': f"{stats['nusselt']:.2f}",
+                    'Picard': stats['n_iterations']
+                })
+                pbar.update(1)
 
             # 自适应细化
             if adaptive and step > 0 and step % refine_interval == 0:
@@ -936,9 +957,16 @@ class PicardStokesSolver:
                         print(f"  Adaptive refinement skipped: {e}")
 
             if verbose and step % max(1, n_steps // 10) == 0:
-                print(f"Step {step:4d}/{n_steps} | t={self.time:.4e} | "
-                      f"Nu={stats['nusselt']:.3f} | "
-                      f"Picard={stats['n_iterations']}")
+                msg = (f"Step {step:4d}/{n_steps} | t={self.time:.4e} | "
+                       f"Nu={stats['nusselt']:.3f} | "
+                       f"Picard={stats['n_iterations']}")
+                if pbar is not None:
+                    pbar.write(msg)
+                else:
+                    print(msg)
+
+        if pbar is not None:
+            pbar.close()
 
         elapsed = time.time() - t_start
         if verbose:
@@ -992,6 +1020,63 @@ class PicardStokesSolver:
             print(f"Saved {filepath}.vtk")
         except ImportError:
             pass
+
+    def plot(self, field='temperature', save=True, show=False):
+        """
+        自动画图 — 温度场/粘度场/速度矢量。
+
+        Args:
+            field: 'temperature', 'viscosity', 'velocity', 'all'
+            save: 是否保存PNG
+            show: 是否弹出窗口显示
+        """
+        try:
+            import matplotlib.pyplot as plt
+
+            fields = {
+                'temperature': (self.temperature, 'inferno', 'Temperature'),
+                'viscosity': (np.log10(self.viscosity + 1e-12), 'viridis', 'log₁₀(Viscosity)'),
+                'velocity': (np.sqrt(self.velocity[0::self.mesh.n_dofs_per_node]**2 +
+                                    self.velocity[1::self.mesh.n_dofs_per_node]**2),
+                            'plasma', 'Velocity Magnitude'),
+            }
+
+            if field == 'all':
+                fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+                for ax, (name, (data, cmap, label)) in zip(axes, fields.items()):
+                    im = ax.tripcolor(self.mesh.nodes[:, 0], self.mesh.nodes[:, 1],
+                                     self.mesh.elements, data, cmap=cmap, shading='gouraud')
+                    plt.colorbar(im, ax=ax, label=label)
+                    ax.set_title(name)
+                    ax.set_xlabel('x'); ax.set_ylabel('y')
+                    ax.set_aspect('equal')
+            else:
+                if field not in fields:
+                    field = 'temperature'
+                data, cmap, label = fields[field]
+                fig, ax = plt.subplots(figsize=(8, 6))
+                im = ax.tripcolor(self.mesh.nodes[:, 0], self.mesh.nodes[:, 1],
+                                 self.mesh.elements, data, cmap=cmap, shading='gouraud')
+                plt.colorbar(im, ax=ax, label=label)
+                ax.set_title(f'{field} at t={self.time:.4e}')
+                ax.set_xlabel('x'); ax.set_ylabel('y')
+                ax.set_aspect('equal')
+
+            plt.tight_layout()
+
+            if save:
+                Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
+                fpath = Path(self.config.output_dir) / f'{field}.png'
+                plt.savefig(fpath, dpi=150, bbox_inches='tight')
+                print(f"Plot saved: {fpath}")
+
+            if show:
+                plt.show()
+            else:
+                plt.close()
+
+        except Exception as e:
+            print(f"Plot error: {e}")
 
 
 # ============================================================================
