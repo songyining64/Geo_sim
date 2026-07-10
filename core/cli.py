@@ -89,8 +89,9 @@ def main():
         description='Geo_sim — 地质动力学仿真框架',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
+ 示例:
   geo-sim demo         运行地幔对流演示
+  geo-sim run config.yaml  从YAML配置文件运行
   geo-sim benchmark    运行Blankenbach基准测试
   geo-sim check        检查安装环境
         """
@@ -98,6 +99,11 @@ def main():
     sub = parser.add_subparsers(dest='cmd')
 
     sub.add_parser('demo', help='运行地幔对流演示 (含自动画图)')
+    run_p = sub.add_parser('run', help='从YAML配置文件运行仿真')
+    run_p.add_argument('config', help='YAML配置文件路径')
+    run_p.add_argument('--steps', type=int, default=None)
+    run_p.add_argument('--resume', action='store_true')
+    run_p.add_argument('--checkpoint', type=int, default=50)
     sub.add_parser('benchmark', help='运行Blankenbach 1989基准测试')
     sub.add_parser('check', help='检查安装环境')
 
@@ -105,6 +111,8 @@ def main():
 
     if args.cmd == 'demo':
         return cmd_demo()
+    elif args.cmd == 'run':
+        return cmd_run_config(args)
     elif args.cmd == 'benchmark':
         return cmd_benchmark()
     elif args.cmd == 'check':
@@ -112,6 +120,27 @@ def main():
     else:
         parser.print_help()
         return 0
+
+
+def cmd_run_config(args):
+    """从YAML配置运行仿真"""
+    from core.stokes_solver import StokesConfig, PicardStokesSolver
+
+    config = StokesConfig.from_yaml(args.config)
+    if args.steps is not None:
+        config.max_time_steps = args.steps
+
+    solver = PicardStokesSolver(config)
+    history = solver.run(
+        n_steps=config.max_time_steps,
+        verbose=True,
+        show_progress=True,
+        checkpoint_every=args.checkpoint,
+        resume=args.resume,
+    )
+    solver.plot(field='all', save=True, show=False)
+    solver.save()
+    return 0
 
 
 if __name__ == '__main__':

@@ -933,9 +933,14 @@ class PicardStokesSolver:
 
         return nu
 
+
+
+
     def run(self, n_steps: int = None, verbose: bool = True,
             adaptive: bool = False, refine_interval: int = 20,
-            show_progress: bool = True) -> Dict:
+            show_progress: bool = True,
+            checkpoint_every: int = 0,
+            resume: bool = False) -> Dict:
         """
         运行完整的地幔对流仿真。
 
@@ -943,8 +948,10 @@ class PicardStokesSolver:
             n_steps: 时间步数
             verbose: 是否打印进度
             adaptive: 是否启用自适应网格细化
-            refine_interval: 每隔多少步检查是否需要细化
+            refine_interval: 自适应细化间隔
             show_progress: 是否显示tqdm进度条
+            checkpoint_every: 每N步自动保存断点 (0=不保存)
+            resume: 是否从上次断点继续 (checkpoint_every>0时生效)
         """
         if n_steps is None:
             n_steps = self.config.max_time_steps
@@ -956,27 +963,42 @@ class PicardStokesSolver:
             'viscosity_max': [], 'picard_iterations': [],
         }
 
-        if adaptive:
-            from adaptivity.error_estimator import ErrorEstimator
-            from adaptivity.mesh_refinement import MeshRefinement
-            self._error_estimator = ErrorEstimator()
-            self._mesh_refiner = MeshRefinement()
+        start_step = 0
+
+        # 断点续跑
+        if resume and checkpoint_every > 0:
+            ckpt_path = Path(self.config.output_dir) / 'checkpoint.npz'
+            if ckpt_path.exists():
+                try:
+                    ckpt = np.load(ckpt_path, allow_pickle=True)
+                    self.temperature = ckpt['temperature']
+                    self.velocity = ckpt['velocity']
+                    self.viscosity = ckpt['viscosity']
+                    self.time = float(ckpt['time'])
+                    start_step = int(ckpt['step']) + 1
+                    # 恢复历史
+                    if 'history' in ckpt:
+                        hist = ckpt['history'].item()
+                        history = hist
+                    if verbose:
+                        print(f"  [Resume] 从步骤 {start_step}/{n_steps} 继续, "
+                              f"t={self.time:.4e}")
+                except Exception as e:
+                    if verbose:
+                        print(f"  [Resume] 断点加载失败: {e}, 从头开始")
 
         t_start = time.time()
 
-        # 进度条
         pbar = None
         if show_progress:
             try:
                 from tqdm import tqdm
-                pbar = tqdm(total=n_steps, desc='Simulating',
-                            unit='step', ncols=80,
-                            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} '
-                                       '[{elapsed}<{remaining}, {rate_fmt}]')
+                pbar = tqdm(total=n_steps, initial=start_step, desc='Simulating',
+                            unit='step', ncols=80)
             except ImportError:
                 pass
 
-        for step in range(n_steps):
+        for step in range(start_step, n_steps):
             stats = self.solve_timestep()
 
             history['time'].append(self.time)
@@ -985,45 +1007,20 @@ class PicardStokesSolver:
             history['viscosity_max'].append(stats['viscosity_range'][1])
             history['picard_iterations'].append(stats['n_iterations'])
 
-            # 更新进度条
             if pbar is not None:
-                pbar.set_postfix({
-                    'Nu': f"{stats['nusselt']:.2f}",
-                    'Picard': stats['n_iterations']
-                })
+                pbar.set_postfix({'Nu': f"{stats['nusselt']:.2f}",
+                                  'Picard': stats['n_iterations']})
                 pbar.update(1)
 
-            # 自适应细化
-            if adaptive and step > 0 and step % refine_interval == 0:
-                try:
-                    error_indicators = self._error_estimator.estimate_error(
-                        self.temperature, self.velocity, self.mesh
-                    )
-                    if np.max(error_indicators) > 0.05:
-                        new_nodes, new_cells = self._mesh_refiner.refine(
-                            self.mesh.nodes, self.mesh.elements,
-                            error_indicators
-                        )
-                        # 重建网格和求解器
-                        self.mesh.nodes = new_nodes if new_nodes is not None else self.mesh.nodes
-                        if new_cells is not None:
-                            self.mesh.elements = new_cells
-                            self.mesh.n_elements = len(new_cells)
-                            self.assembler = GlobalStokesAssembler(self.mesh)
-                            self.bc_handler = StokesBoundaryConditions(self.mesh, self.config)
-                            # 插值旧场的值到新网格
-                            self.temperature = self._interpolate_field(
-                                self.temperature, self.mesh.n_nodes)
-                        if verbose:
-                            print(f"  Step {step}: Mesh refined → {self.mesh.n_nodes} nodes")
-                except Exception as e:
-                    if verbose:
-                        print(f"  Adaptive refinement skipped: {e}")
+            # 自动断点
+            if checkpoint_every > 0 and (step + 1) % checkpoint_every == 0:
+                self._save_checkpoint(step, history)
+                if verbose and pbar is not None:
+                    pbar.write(f"  [Checkpoint] step {step+1}")
 
             if verbose and step % max(1, n_steps // 10) == 0:
                 msg = (f"Step {step:4d}/{n_steps} | t={self.time:.4e} | "
-                       f"Nu={stats['nusselt']:.3f} | "
-                       f"Picard={stats['n_iterations']}")
+                       f"Nu={stats['nusselt']:.3f} | Picard={stats['n_iterations']}")
                 if pbar is not None:
                     pbar.write(msg)
                 else:
@@ -1034,11 +1031,27 @@ class PicardStokesSolver:
 
         elapsed = time.time() - t_start
         if verbose:
-            print(f"\nSimulation complete: {n_steps} steps in {elapsed:.1f}s")
+            print(f"\nSimulation complete: {n_steps - start_step} steps "
+                  f"in {elapsed:.1f}s")
             print(f"Final Nusselt: {history['nusselt'][-1]:.3f}")
-            print(f"Avg Picard iterations: {np.mean(history['picard_iterations']):.1f}")
+            print(f"Avg Picard iterations: "
+                  f"{np.mean(history['picard_iterations']):.1f}")
 
         return history
+
+    def _save_checkpoint(self, step: int, history: Dict):
+        """保存断点"""
+        ckpt_path = Path(self.config.output_dir) / 'checkpoint.npz'
+        Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            ckpt_path,
+            temperature=self.temperature,
+            velocity=self.velocity,
+            viscosity=self.viscosity,
+            time=self.time,
+            step=step,
+            history=np.array([history], dtype=object),
+        )
 
     def _interpolate_field(self, old_field: np.ndarray,
                            n_new_nodes: int) -> np.ndarray:
@@ -1192,3 +1205,24 @@ def benchmark_blankenbach():
 
 if __name__ == '__main__':
     benchmark_blankenbach()
+
+
+# ── StokesConfig YAML序列化 ──
+
+def _stokes_config_from_yaml(filepath: str):
+    import yaml
+    with open(filepath, 'r') as f:
+        data = yaml.safe_load(f)
+    return StokesConfig(**{k: v for k, v in data.items()
+                           if k in StokesConfig.__dataclass_fields__})
+
+StokesConfig.from_yaml = staticmethod(_stokes_config_from_yaml)
+
+
+def _stokes_config_to_yaml(self, filepath: str):
+    import yaml
+    data = {k: getattr(self, k) for k in self.__dataclass_fields__}
+    with open(filepath, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+StokesConfig.to_yaml = _stokes_config_to_yaml

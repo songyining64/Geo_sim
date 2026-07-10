@@ -1,0 +1,33 @@
+# Geo_sim 仿真配置文件
+# 用法: geo-sim run config.yaml
+#       geo-sim run config.yaml --steps 500 --checkpoint 50
+#       geo-sim run config.yaml --resume       # 从断点继续
+
+# 网格
+nx: 32
+ny: 32
+
+# 物理参数
+rayleigh: 100000          # Rayleigh数 (10^4~10^6)
+viscosity_contrast: 1.0   # 粘度对比度 (1=等粘度)
+
+# 边界条件
+boundary_temp_top: 0.0
+boundary_temp_bottom: 1.0
+boundary_velocity: free_slip
+
+# 求解器
+max_picard_iterations: 30
+picard_tolerance: 0.0001
+
+# 时间积分
+max_time_steps: 200
+dt: 0.001
+
+# 输出
+output_dir: ./simulation_output
+use_meta_amg: false
+
+# 材料参数 (可选)
+thermal_conductivity: 1.0
+thermal_expansivity: 1.0
