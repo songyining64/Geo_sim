@@ -429,9 +429,16 @@ class FiniteElementSimulator(BaseSimulator):
         pass
     
     def _execute_step(self, **kwargs) -> bool:
-        """执行有限元步骤"""
-        # 实现有限元计算步骤
-        return True
+        """执行有限元计算步骤 — 组装刚度矩阵并求解"""
+        try:
+            K, f = self.assembly.assemble_global_stiffness_matrix(
+                kwargs.get('material_props', {}))
+            x = spsolve(K, f)
+            self.current_solution = x
+            return True
+        except Exception as e:
+            self._handle_error(f"FEM step failed: {e}")
+            return False
 
 
 class MultiPhysicsSimulator(BaseSimulator):

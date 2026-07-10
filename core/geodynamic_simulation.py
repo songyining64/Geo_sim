@@ -1740,13 +1740,14 @@ class OutputManager:
     
     def save_timestep(self, step: int, data: Dict[str, np.ndarray]):
         """保存时间步数据"""
-        # 简化实现
-        pass
+        filepath = Path(self.output_dir) / f"timestep_{step:06d}.npz"
+        np.savez_compressed(filepath, **data)
+        self.timestep_files.append(str(filepath))
     
     def save_final_output(self, data: Dict[str, np.ndarray]):
         """保存最终输出"""
-        # 简化实现
-        pass
+        filepath = Path(self.output_dir) / "final_output.npz"
+        np.savez_compressed(filepath, **data)
     
     def visualize_field(self, field_name: str, field_data: np.ndarray, 
                        mesh: AdaptiveMesh, **kwargs):
@@ -1754,21 +1755,38 @@ class OutputManager:
         if not HAS_MATPLOTLIB:
             print("matplotlib不可用，无法可视化")
             return
-        
-        # 简化实现
-        print(f"可视化场: {field_name}")
+        fig, ax = plt.subplots(figsize=(8, 6))
+        if mesh.dim == 2:
+            im = ax.tripcolor(mesh.nodes[:, 0], mesh.nodes[:, 1],
+                             [c.nodes for c in mesh.cells], field_data,
+                             cmap='viridis')
+            plt.colorbar(im, label=field_name)
+        ax.set_title(f"Field: {field_name}")
+        plt.tight_layout()
+        if kwargs.get('show', True):
+            plt.show()
+        if kwargs.get('save', False):
+            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+            plt.savefig(Path(self.output_dir) / f"{field_name}.png", dpi=150)
     
     def export_vtk(self, filepath: str, mesh: AdaptiveMesh, 
-                   field_names: List[str], field_data: Dict[str, np.ndarray]):
+                    field_names: List[str], field_data: Dict[str, np.ndarray]):
         """导出为VTK格式"""
-        # 简化实现
-        pass
+        import meshio
+        cells = [("triangle", np.array([c.nodes for c in mesh.cells]))]
+        point_data = {name: data for name, data in field_data.items()
+                      if name in field_names}
+        meshio.write_points_cells(filepath, mesh.nodes, cells,
+                                  point_data=point_data)
     
     def export_hdf5(self, filepath: str, mesh: AdaptiveMesh, 
-                    field_data: Dict[str, np.ndarray]):
+                     field_data: Dict[str, np.ndarray]):
         """导出为HDF5格式"""
-        # 简化实现
-        pass
+        with h5py.File(filepath, 'w') as f:
+            f.create_dataset("nodes", data=mesh.nodes)
+            f.create_dataset("cells", data=np.array([c.nodes for c in mesh.cells]))
+            for name, data in field_data.items():
+                f.create_dataset(name, data=data)
 
 
 class PerformanceMonitor:

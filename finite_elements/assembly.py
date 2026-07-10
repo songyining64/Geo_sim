@@ -335,7 +335,81 @@ def elasticity_triangle_stiffness(node_coords, order=1, lame_lambda=1.0, lame_mu
     return assembly.assemble_elasticity_matrix(node_coords, lame_lambda, lame_mu)
 
 def stokes_heat_element_matrix(node_coords, params):
-    """Stokes-热耦合单元矩阵"""
-    # 这里可以实现Stokes-热耦合的单元矩阵组装
-    # 包括速度、压力和温度的耦合项
-    pass
+    """
+    Stokes-热耦合单元矩阵（2D三角形线性单元）。
+
+    返回4x4块矩阵:
+      [ K_uu   K_up   K_uT ]  速度-速度  速度-压力  速度-温度
+      [ K_pu   0      0    ]  压力-速度  0          0
+      [ 0      0      K_TT ]  0          0          温度-温度
+
+    K_uu ≈ η(param) × ∫ Bᵀ D B dΩ     (粘度缩放)
+    K_pu = ∫ N_p (∇·N_u) dΩ           (散度约束)
+    K_TT = κ × ∫ ∇N·∇N dΩ              (热传导)
+    """
+    import numpy as np
+    from finite_elements.basis_functions import LagrangeTriangle
+    from finite_elements.quadrature import triangle_points_weights
+    from finite_elements.transformations import jacobian_matrix, jacobian_det, dN_dx
+
+    dim = 2
+    n_nodes = node_coords.shape[0]
+    n_dofs = (dim + 1 + 1) * n_nodes  # u(2) + p(1) + T(1)
+
+    K = np.zeros((n_dofs, n_dofs))
+
+    basis = LagrangeTriangle(1)
+    quad_pts, quad_wts = triangle_points_weights(2)
+
+    eta = params.get('viscosity', 1.0)
+    kappa = params.get('thermal_conductivity', 1.0)
+    alpha = params.get('thermal_expansivity', 0.0)
+    gravity = params.get('gravity', np.array([0.0, -9.81]))
+
+    for q, w in zip(quad_pts, quad_wts):
+        N = basis.evaluate(q.reshape(1, -1))[0]
+        dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
+
+        J = jacobian_matrix(node_coords, dN_dxi)
+        detJ = jacobian_det(J)
+        J_inv = np.linalg.inv(J)
+        dN_dx_ = dN_dx(dN_dxi, J_inv)
+        dV = detJ * w
+
+        # 速度块: ∫ η Bᵀ D B dΩ
+        for a in range(n_nodes):
+            for b in range(n_nodes):
+                for i in range(dim):
+                    for j in range(dim):
+                        ia = a * (dim + 2) + i
+                        jb = b * (dim + 2) + j
+                        K[ia, jb] += eta * dN_dx_[a, i] * dN_dx_[b, j] * dV
+                        if i == j:
+                            K[ia, jb] += eta * dN_dx_[a, i] * dN_dx_[b, i] * dV
+
+        # 压力块: ∫ -N_p (∇·N_u) dΩ  (divergence)
+        for a in range(n_nodes):
+            p_idx = a * (dim + 2) + dim  # pressure DOF
+            for b in range(n_nodes):
+                for i in range(dim):
+                    u_idx = b * (dim + 2) + i
+                    K[p_idx, u_idx] -= N[a] * dN_dx_[b, i] * dV
+                    K[u_idx, p_idx] -= dN_dx_[a, i] * N[b] * dV  # transpose
+
+        # 温度块: ∫ κ ∇N·∇N dΩ
+        T_offset = dim + 1
+        for a in range(n_nodes):
+            Ta = a * (dim + 2) + dim + 1
+            for b in range(n_nodes):
+                Tb = b * (dim + 2) + dim + 1
+                K[Ta, Tb] += kappa * np.dot(dN_dx_[a], dN_dx_[b]) * dV
+
+        # 热膨胀耦合: ∫ α (ρ₀ g) N_u N_T dΩ (Boussinesq近似)
+        for a in range(n_nodes):
+            Ta = a * (dim + 2) + dim + 1
+            for b in range(n_nodes):
+                for i in range(dim):
+                    ub = b * (dim + 2) + i
+                    K[ub, Ta] += alpha * gravity[i] * N[a] * N[b] * dV
+
+    return K
