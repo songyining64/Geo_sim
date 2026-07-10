@@ -691,6 +691,9 @@ def stokes_simulation_with_meta_amg():
     print(f"Avg Picard iters: {np.mean(history['picard_iterations']):.1f}")
 
     return solver, history
+
+
+class PicardStokesSolver:
     """
     非线性Picard Stokes求解器 — 对标Underworld的地幔对流主循环。
     """
@@ -698,8 +701,8 @@ def stokes_simulation_with_meta_amg():
     def __init__(self, config: StokesConfig = None):
         self.config = config or StokesConfig()
         self.mesh = StokesMesh(
-            self.config.nx, self.config.ny,
-            self.config.lx, self.config.ly
+            nx=self.config.nx, ny=self.config.ny,
+            lx=self.config.lx, ly=self.config.ly
         )
         self.assembler = GlobalStokesAssembler(self.mesh)
         self.bc_handler = StokesBoundaryConditions(self.mesh, self.config)
