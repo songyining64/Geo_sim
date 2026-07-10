@@ -64,56 +64,84 @@ class StokesConfig:
 
 
 class StokesMesh:
-    """2D三角形Stokes网格 (Q1-P0或P1-P1)"""
+    """2D/3D Stokes网格"""
 
-    def __init__(self, nx: int, ny: int, lx: float = 1.0, ly: float = 1.0):
+    def __init__(self, nx: int, ny: int, nz: int = None,
+                 lx: float = 1.0, ly: float = 1.0, lz: float = 1.0):
         self.nx, self.ny = nx, ny
         self.lx, self.ly = lx, ly
-        self.dim = 2
+        self.nz = nz
+        self.lz = lz
+        self.dim = 2 if nz is None else 3
+        self.n_dofs_per_node = 5 if self.dim == 3 else 4  # ux,uy,(uz),p,T
 
+        if self.dim == 2:
+            self._build_2d_mesh()
+        else:
+            self._build_3d_mesh()
+
+        self._identify_boundaries()
+
+    def _build_2d_mesh(self):
+        nx, ny, lx, ly = self.nx, self.ny, self.lx, self.ly
         x = np.linspace(0, lx, nx + 1)
         y = np.linspace(0, ly, ny + 1)
         self.nodes = np.array([[xi, yi] for yi in y for xi in x])
-
-        # 三角形单元
         self.elements = []
         for j in range(ny):
             for i in range(nx):
                 n1 = j * (nx + 1) + i
-                n2 = j * (nx + 1) + i + 1
-                n3 = (j + 1) * (nx + 1) + i + 1
-                n4 = (j + 1) * (nx + 1) + i
+                n2 = n1 + 1; n3 = n1 + nx + 2; n4 = n1 + nx + 1
                 self.elements.append([n1, n2, n3])
                 self.elements.append([n1, n3, n4])
-
         self.n_nodes = len(self.nodes)
         self.n_elements = len(self.elements)
-        self.n_dofs_per_node = 4  # ux, uy, p, T
         self.n_dofs = self.n_nodes * self.n_dofs_per_node
 
-        self._identify_boundaries()
+    def _build_3d_mesh(self):
+        nx, ny, nz = self.nx, self.ny, self.nz
+        lx, ly, lz = self.lx, self.ly, self.lz
+        x = np.linspace(0, lx, nx + 1)
+        y = np.linspace(0, ly, ny + 1)
+        z = np.linspace(0, lz, nz + 1)
+        self.nodes = np.array([[xi, yi, zi] for zi in z for yi in y for xi in x])
+        self.elements = []
+        for k in range(nz):
+            for j in range(ny):
+                for i in range(nx):
+                    nxy = (nx + 1) * (ny + 1)
+                    base = k * nxy + j * (nx + 1) + i
+                    n000, n100 = base, base + 1
+                    n010, n110 = base + nx + 1, base + nx + 2
+                    n001, n101 = base + nxy, base + nxy + 1
+                    n011, n111 = base + nxy + nx + 1, base + nxy + nx + 2
+                    tets = [
+                        [n000, n100, n010, n001], [n100, n110, n010, n001],
+                        [n100, n110, n111, n001], [n100, n101, n111, n001],
+                        [n010, n110, n111, n011], [n010, n111, n001, n011]
+                    ]
+                    self.elements.extend(tets)
+        self.n_nodes = len(self.nodes)
+        self.n_elements = len(self.elements)
+        self.n_dofs = self.n_nodes * self.n_dofs_per_node
 
     def _identify_boundaries(self):
-        """识别边界节点"""
         eps = 1e-8
-        self.bottom_nodes = []
-        self.top_nodes = []
-        self.left_nodes = []
-        self.right_nodes = []
-
-        for i, (xi, yi) in enumerate(self.nodes):
-            if abs(yi) < eps:
-                self.bottom_nodes.append(i)
-            if abs(yi - self.ly) < eps:
-                self.top_nodes.append(i)
-            if abs(xi) < eps:
-                self.left_nodes.append(i)
-            if abs(xi - self.lx) < eps:
-                self.right_nodes.append(i)
-
+        self.bottom_nodes = [i for i, n in enumerate(self.nodes) if abs(n[-1]) < eps]
+        self.top_nodes = [i for i, n in enumerate(self.nodes)
+                         if abs(n[-1] - (self.lz if self.dim == 3 else self.ly)) < eps]
+        self.left_nodes = [i for i, n in enumerate(self.nodes) if abs(n[0]) < eps]
+        self.right_nodes = [i for i, n in enumerate(self.nodes)
+                           if abs(n[0] - self.lx) < eps]
+        if self.dim == 3:
+            self.front_nodes = [i for i, n in enumerate(self.nodes) if abs(n[1]) < eps]
+            self.back_nodes = [i for i, n in enumerate(self.nodes)
+                              if abs(n[1] - self.ly) < eps]
         self.boundary_nodes = list(set(
             self.bottom_nodes + self.top_nodes +
-            self.left_nodes + self.right_nodes
+            self.left_nodes + self.right_nodes +
+            (self.front_nodes if self.dim == 3 else []) +
+            (self.back_nodes if self.dim == 3 else [])
         ))
         self.interior_nodes = [i for i in range(self.n_nodes)
                               if i not in self.boundary_nodes]
@@ -124,7 +152,41 @@ class GlobalStokesAssembler:
 
     def __init__(self, mesh: StokesMesh):
         self.mesh = mesh
-        self.nodal_dofs = 4  # ux, uy, p, T
+
+    def assemble_pressure_mass_matrix(self, viscosity: np.ndarray) -> sp.spmatrix:
+        """
+        真实FEM装配压力质量矩阵: Q[i,j] = ∫ (1/η) N_i N_j dΩ
+
+        用于Schur补近似 S ≈ B diag(A)^{-1} B^T 的改进版。
+        """
+        n_nodes = self.mesh.n_nodes
+        Q = sp.lil_matrix((n_nodes, n_nodes))
+
+        from finite_elements.basis_functions import LagrangeTriangle, LagrangeTetra
+        from finite_elements.quadrature import triangle_points_weights, tetra_points_weights
+        from finite_elements.transformations import jacobian_matrix, jacobian_det
+
+        BasisClass = LagrangeTetra if self.mesh.dim == 3 else LagrangeTriangle
+        quad_func = tetra_points_weights if self.mesh.dim == 3 else triangle_points_weights
+        basis = BasisClass(1)
+        quad_pts, quad_wts = quad_func(2)
+
+        for elem_nodes in self.mesh.elements:
+            coords = self.mesh.nodes[elem_nodes]
+            eta_inv = 1.0 / (np.mean(viscosity[elem_nodes]) + 1e-12)
+
+            for q, w in zip(quad_pts, quad_wts):
+                N = basis.evaluate(q.reshape(1, -1))[0]
+                dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
+                J = jacobian_matrix(coords, dN_dxi)
+                detJ = jacobian_det(J)
+                dV = detJ * w
+
+                for a in range(len(elem_nodes)):
+                    for b in range(len(elem_nodes)):
+                        Q[elem_nodes[a], elem_nodes[b]] += eta_inv * N[a] * N[b] * dV
+
+        return Q.tocsr()
 
     def assemble(self, viscosity: np.ndarray,
                  temperature: np.ndarray,
@@ -137,31 +199,27 @@ class GlobalStokesAssembler:
         """
         n_dofs = self.mesh.n_dofs
         A = sp.lil_matrix((n_dofs, n_dofs))
+        ndpn = self.mesh.n_dofs_per_node
 
         for elem_nodes in self.mesh.elements:
             coords = self.mesh.nodes[elem_nodes]
-
             eta = np.mean(viscosity[elem_nodes])
-            T_elem = np.mean(temperature[elem_nodes])
 
-            params = {
-                'viscosity': eta,
-                'thermal_conductivity': thermal_conductivity,
-                'thermal_expansivity': 1.0,
-                'gravity': np.array([0.0, -1.0]),
-            }
+            params = {'viscosity': eta,
+                     'thermal_conductivity': thermal_conductivity,
+                     'thermal_expansivity': 1.0,
+                     'gravity': np.array([0.0, -1.0])}
 
             Ke = stokes_heat_element_matrix(coords, params)
 
             for a_local, a_global in enumerate(elem_nodes):
                 for b_local, b_global in enumerate(elem_nodes):
-                    for i in range(self.nodal_dofs):
-                        for j in range(self.nodal_dofs):
-                            row = a_global * self.nodal_dofs + i
-                            col = b_global * self.nodal_dofs + j
-                            val = Ke[a_local * self.nodal_dofs + i,
-                                     b_local * self.nodal_dofs + j]
-                            A[row, col] += val
+                    for i in range(ndpn):
+                        for j in range(ndpn):
+                            row = a_global * ndpn + i
+                            col = b_global * ndpn + j
+                            A[row, col] += Ke[a_local * ndpn + i,
+                                              b_local * ndpn + j]
 
         return A.tocsr()
 
@@ -350,6 +408,7 @@ class BlockStokesSolver:
     def __init__(self, mesh: StokesMesh, config: StokesConfig):
         self.mesh = mesh
         self.config = config
+        self.assembler = GlobalStokesAssembler(mesh)
 
         from solvers.multigrid_solver import (
             AlgebraicMultigridSolver, MultigridConfig
@@ -359,9 +418,17 @@ class BlockStokesSolver:
         )
         self.meta_amg = None
         self._prev_matrices = []
+        self._Q_matrix = None  # 缓存的压力质量矩阵
 
     def set_meta_amg(self, meta_amg):
         self.meta_amg = meta_amg
+
+    def _viscosity_changed_significantly(self, viscosity: np.ndarray) -> bool:
+        if not hasattr(self, '_prev_viscosity') or self._prev_viscosity is None:
+            return True
+        rel_change = np.max(np.abs(viscosity - self._prev_viscosity) /
+                           (np.abs(self._prev_viscosity) + 1e-12))
+        return rel_change > 0.1
 
     def extract_blocks(self, A_full: sp.spmatrix, b_full: np.ndarray,
                        temperature: np.ndarray, viscosity: np.ndarray
@@ -384,10 +451,12 @@ class BlockStokesSolver:
         p_indices = [i * nodal_dofs + 2 for i in range(n_nodes)]
         B = A_full[np.ix_(p_indices, vel_indices)]
 
-        # 压力质量矩阵 Q = ∫ N_p N_p dΩ (对角近似)
-        Q_diag = np.ones(n_nodes) / np.mean(viscosity)
+        # 压力质量矩阵: 真实FEM装配 (缓存, 只在粘度变化>10%时重算)
+        if self._Q_matrix is None or self._viscosity_changed_significantly(viscosity):
+            self._Q_matrix = self.assembler.assemble_pressure_mass_matrix(viscosity)
+            self._prev_viscosity = viscosity.copy()
 
-        return A_vel, b_vel, B, Q_diag, vel_indices, p_indices
+        return A_vel, b_vel, B, self._Q_matrix, vel_indices, p_indices
 
     def solve(self, A_full: sp.spmatrix, b_full: np.ndarray,
               temperature: np.ndarray, viscosity: np.ndarray,
@@ -407,7 +476,7 @@ class BlockStokesSolver:
         else:
             x = x0.copy()
 
-        A_vel, b_vel, B, Q_diag, vel_idx, p_idx = \
+        A_vel, b_vel, B, Q, vel_idx, p_idx = \
             self.extract_blocks(A_full, b_full, temperature, viscosity)
 
         n_vel = len(vel_idx)
@@ -427,9 +496,9 @@ class BlockStokesSolver:
                 vel_solver = AlgebraicMultigridSolver(self.amg_config)
                 u_new = vel_solver.solve(A_vel, rhs_u)
 
-            # 3. 压力步: 计算散度残差, Schur补近似求解
+            # 3. 压力步: Schur补 Q dp = B u (真实FEM质量矩阵)
             div = B @ u_new
-            dp = div / (Q_diag + 1e-12)
+            dp = spsolve(Q, div)
 
             # 4. 更新
             u = u_new
@@ -793,12 +862,16 @@ def stokes_simulation_with_meta_amg():
 
         return nu
 
-    def run(self, n_steps: int = None, verbose: bool = True) -> Dict:
+    def run(self, n_steps: int = None, verbose: bool = True,
+            adaptive: bool = False, refine_interval: int = 20) -> Dict:
         """
         运行完整的地幔对流仿真。
 
-        Returns:
-            history: dict with time series of all diagnostic quantities
+        Args:
+            n_steps: 时间步数
+            verbose: 是否打印进度
+            adaptive: 是否启用自适应网格细化
+            refine_interval: 每隔多少步检查是否需要细化
         """
         if n_steps is None:
             n_steps = self.config.max_time_steps
@@ -810,6 +883,13 @@ def stokes_simulation_with_meta_amg():
             'viscosity_max': [], 'picard_iterations': [],
         }
 
+        # 自适应细化
+        if adaptive:
+            from adaptivity.error_estimator import ErrorEstimator
+            from adaptivity.mesh_refinement import MeshRefinement
+            self._error_estimator = ErrorEstimator()
+            self._mesh_refiner = MeshRefinement()
+
         t_start = time.time()
 
         for step in range(n_steps):
@@ -820,6 +900,33 @@ def stokes_simulation_with_meta_amg():
             history['viscosity_min'].append(stats['viscosity_range'][0])
             history['viscosity_max'].append(stats['viscosity_range'][1])
             history['picard_iterations'].append(stats['n_iterations'])
+
+            # 自适应细化
+            if adaptive and step > 0 and step % refine_interval == 0:
+                try:
+                    error_indicators = self._error_estimator.estimate_error(
+                        self.temperature, self.velocity, self.mesh
+                    )
+                    if np.max(error_indicators) > 0.05:
+                        new_nodes, new_cells = self._mesh_refiner.refine(
+                            self.mesh.nodes, self.mesh.elements,
+                            error_indicators
+                        )
+                        # 重建网格和求解器
+                        self.mesh.nodes = new_nodes if new_nodes is not None else self.mesh.nodes
+                        if new_cells is not None:
+                            self.mesh.elements = new_cells
+                            self.mesh.n_elements = len(new_cells)
+                            self.assembler = GlobalStokesAssembler(self.mesh)
+                            self.bc_handler = StokesBoundaryConditions(self.mesh, self.config)
+                            # 插值旧场的值到新网格
+                            self.temperature = self._interpolate_field(
+                                self.temperature, self.mesh.n_nodes)
+                        if verbose:
+                            print(f"  Step {step}: Mesh refined → {self.mesh.n_nodes} nodes")
+                except Exception as e:
+                    if verbose:
+                        print(f"  Adaptive refinement skipped: {e}")
 
             if verbose and step % max(1, n_steps // 10) == 0:
                 print(f"Step {step:4d}/{n_steps} | t={self.time:.4e} | "
@@ -834,21 +941,50 @@ def stokes_simulation_with_meta_amg():
 
         return history
 
+    def _interpolate_field(self, old_field: np.ndarray,
+                           n_new_nodes: int) -> np.ndarray:
+        """将旧网格上的场插值到新网格 (最近邻)"""
+        new_field = np.zeros(n_new_nodes)
+        n_old = min(len(old_field), n_new_nodes)
+        # 简单的截断/填充策略
+        new_field[:n_old] = old_field[:n_old]
+        if n_new_nodes > n_old:
+            new_field[n_old:] = np.mean(old_field)
+        return new_field
+
     def save(self, filepath: str = None):
-        """保存仿真结果"""
+        """保存仿真结果 (NPZ + VTK)"""
         if filepath is None:
             Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
-            filepath = str(Path(self.config.output_dir) / 'stokes_result.npz')
+            filepath = str(Path(self.config.output_dir) / 'stokes_result')
 
-        np.savez_compressed(filepath,
+        # NPZ (总是可用)
+        np.savez_compressed(filepath + '.npz',
                            temperature=self.temperature,
                            velocity=self.velocity,
                            viscosity=self.viscosity,
                            time=self.time,
                            nodes=self.mesh.nodes,
-                           elements=np.array(self.mesh.elements),
-                           config=self.config.__dict__)
-        print(f"Saved to {filepath}")
+                           elements=np.array(self.mesh.elements))
+        print(f"Saved {filepath}.npz")
+
+        # VTK (如果meshio可用)
+        try:
+            import meshio
+            cells = [("triangle", np.array(self.mesh.elements))]
+            point_data = {
+                "temperature": self.temperature,
+                "viscosity": self.viscosity,
+            }
+            vel_mag = np.sqrt(self.velocity[0::self.mesh.n_dofs_per_node]**2 +
+                             self.velocity[1::self.mesh.n_dofs_per_node]**2)
+            point_data["velocity_magnitude"] = vel_mag
+            meshio.write_points_cells(filepath + '.vtk',
+                                     self.mesh.nodes, cells,
+                                     point_data=point_data)
+            print(f"Saved {filepath}.vtk")
+        except ImportError:
+            pass
 
 
 # ============================================================================

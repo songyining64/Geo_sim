@@ -404,12 +404,86 @@ def stokes_heat_element_matrix(node_coords, params):
                 Tb = b * (dim + 2) + dim + 1
                 K[Ta, Tb] += kappa * np.dot(dN_dx_[a], dN_dx_[b]) * dV
 
-        # 热膨胀耦合: ∫ α (ρ₀ g) N_u N_T dΩ (Boussinesq近似)
+        # 热膨胀耦合: ∫ α (ρ₀ g) N_u N_T dΩ (Boussinesq)
         for a in range(n_nodes):
             Ta = a * (dim + 2) + dim + 1
             for b in range(n_nodes):
                 for i in range(dim):
                     ub = b * (dim + 2) + i
                     K[ub, Ta] += alpha * gravity[i] * N[a] * N[b] * dV
+
+    return K
+
+
+def stokes_heat_element_matrix_3d(node_coords, params):
+    """
+    3D Stokes-热耦合单元矩阵 (四面体线性单元, P1-P1)。
+
+    返回块矩阵:
+      [ K_uu(3×3)  K_up(3×1)  K_uT(3×1) ]
+      [ K_pu(1×3)  -M_p      0         ]
+      [ 0           0         K_TT      ]
+    """
+    import numpy as np
+    from finite_elements.basis_functions import LagrangeTetra
+    from finite_elements.quadrature import tetra_points_weights
+    from finite_elements.transformations import jacobian_matrix, jacobian_det, dN_dx
+
+    dim = 3
+    n_nodes = node_coords.shape[0]
+    n_dofs = (dim + 1 + 1) * n_nodes  # u(3) + p(1) + T(1)
+    K = np.zeros((n_dofs, n_dofs))
+
+    basis = LagrangeTetra(1)
+    quad_pts, quad_wts = tetra_points_weights(2)
+
+    eta = params.get('viscosity', 1.0)
+    kappa = params.get('thermal_conductivity', 1.0)
+    alpha = params.get('thermal_expansivity', 0.0)
+    g = params.get('gravity', np.array([0.0, 0.0, -1.0]))
+
+    for q, w in zip(quad_pts, quad_wts):
+        N = basis.evaluate(q.reshape(1, -1))[0]
+        dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
+        J = jacobian_matrix(node_coords, dN_dxi)
+        detJ = jacobian_det(J)
+        J_inv = np.linalg.inv(J)
+        dN_dx_ = dN_dx(dN_dxi, J_inv)
+        dV = detJ * w
+
+        # 速度块: ∫ η (∂u_i/∂x_j)(∂v_i/∂x_j) + η (∂u_i/∂x_j)(∂v_j/∂x_i) dΩ
+        for a in range(n_nodes):
+            for b in range(n_nodes):
+                for i in range(dim):
+                    ia = a * (dim + 2) + i
+                    for j in range(dim):
+                        jb = b * (dim + 2) + j
+                        K[ia, jb] += eta * dN_dx_[a, j] * dN_dx_[b, j] * dV  # viscous
+                        K[ia, jb] += eta * dN_dx_[a, j] * dN_dx_[b, i] * dV  # symmetric grad
+
+        # 压力块: ∫ -p (∇·u) dΩ
+        for a in range(n_nodes):
+            p_idx = a * (dim + 2) + dim
+            for b in range(n_nodes):
+                for i in range(dim):
+                    u_idx = b * (dim + 2) + i
+                    K[p_idx, u_idx] -= N[a] * dN_dx_[b, i] * dV
+                    K[u_idx, p_idx] -= dN_dx_[a, i] * N[b] * dV
+
+        # 温度块: ∫ κ ∇N·∇N dΩ
+        T_ofs = dim + 1
+        for a in range(n_nodes):
+            Ta = a * (dim + 2) + T_ofs
+            for b in range(n_nodes):
+                Tb = b * (dim + 2) + T_ofs
+                K[Ta, Tb] += kappa * np.dot(dN_dx_[a], dN_dx_[b]) * dV
+
+        # 热膨胀: ∫ α ρ₀ g_i N_v N_T dΩ
+        for a in range(n_nodes):
+            Ta = a * (dim + 2) + T_ofs
+            for b in range(n_nodes):
+                for i in range(dim):
+                    ub = b * (dim + 2) + i
+                    K[ub, Ta] += alpha * g[i] * N[a] * N[b] * dV
 
     return K
