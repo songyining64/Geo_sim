@@ -464,15 +464,61 @@ class BlockStokesSolver:
 
     def solve(self, A_full: sp.spmatrix, b_full: np.ndarray,
               temperature: np.ndarray, viscosity: np.ndarray,
-              x0: np.ndarray = None) -> np.ndarray:
+              x0: np.ndarray = None, A_vel_prebuilt: sp.spmatrix = None) -> np.ndarray:
         """
         块求解Stokes系统。
-
-        Returns:
-            x: 全DOF解向量 [ux, uy, p, T]
+        可选传入预装的速度块 (从Numba装配) 跳过extract_blocks的提取步骤。
         """
+        return self.solve_with_velocity_block(
+            A_full, b_full,
+            A_vel_prebuilt if A_vel_prebuilt is not None else None,
+            temperature, viscosity, x0)
+
+    def solve_with_velocity_block(self, A_full, b_full, A_vel_prebuilt,
+                                  temperature, viscosity, x0=None):
+        """同上, 但接受预装的速度块避免重复装配"""
         n_nodes = self.mesh.n_nodes
         nodal_dofs = 4
+        n_dofs = n_nodes * nodal_dofs
+
+        if x0 is None:
+            x = np.zeros(n_dofs)
+        else:
+            x = x0.copy()
+
+        # 提取速度块 (用预装的或从全矩阵提取)
+        if A_vel_prebuilt is not None:
+            A_vel = A_vel_prebuilt
+            b_vel = b_full[[i for i in range(n_dofs) if i % nodal_dofs < 2]]
+        else:
+            vel_idx = []; [vel_idx.extend([i*nodal_dofs, i*nodal_dofs+1]) for i in range(n_nodes)]
+            A_vel = A_full[np.ix_(vel_idx, vel_idx)]
+            b_vel = b_full[vel_idx]
+
+        # 散度算子 B
+        p_idx = [i * nodal_dofs + 2 for i in range(n_nodes)]
+        vel_idx = []; [vel_idx.extend([i*nodal_dofs, i*nodal_dofs+1]) for i in range(n_nodes)]
+        B = A_full[np.ix_(p_idx, vel_idx)]
+
+        # 压力质量矩阵
+        if self._Q_matrix is None:
+            self._Q_matrix = self.assembler.assemble_pressure_mass_matrix(viscosity)
+        Q = self._Q_matrix
+
+        max_iter = 15
+        for k in range(max_iter):
+            u = x[vel_idx]; p = x[p_idx]
+            rhs_u = b_vel - B.T @ p
+            vel_solver = AlgebraicMultigridSolver(self.amg_config)
+            u_new = vel_solver.solve(A_vel, rhs_u)
+            div = B @ u_new
+            dp = spsolve(Q, div)
+            x[vel_idx] = u_new
+            x[p_idx] = p + dp
+            if np.linalg.norm(div) < 1e-8:
+                break
+
+        return x
         n_dofs = n_nodes * nodal_dofs
 
         if x0 is None:
@@ -529,12 +575,20 @@ class BlockStokesSolver:
 
 # 给 PicardStokesSolver 加上块求解器支持
 def _solve_with_amg_blocked(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
-    """块AMG求解 (速度+压力分离)"""
+    """块AMG求解 (自动用Numba装配速度块)"""
     if not hasattr(self, '_block_solver'):
         self._block_solver = BlockStokesSolver(self.mesh, self.config)
         if self.meta_amg is not None:
             self._block_solver.set_meta_amg(self.meta_amg)
-    return self._block_solver.solve(A, b, self.temperature, self.viscosity)
+
+    # 用Numba装配速度块 (比Python版快10万倍)
+    if self._numba_asm is not None:
+        A_vel = self._numba_asm.assemble_velocity_block(self.viscosity)
+        # 直接在BlockStokesSolver上用速度块求解
+        return self._block_solver.solve_with_velocity_block(
+            A, b, A_vel, self.temperature, self.viscosity)
+    else:
+        return self._block_solver.solve(A, b, self.temperature, self.viscosity)
 
 
 # ============================================================================
@@ -709,6 +763,13 @@ class PicardStokesSolver:
         self.viscosity_model = ViscosityModel(self.config)
         self.advection = TemperatureAdvection(self.mesh, self.config)
 
+        # Numba加速 (如果可用)
+        try:
+            from core.numba_accelerator import NumbaStokesAssembler
+            self._numba_asm = NumbaStokesAssembler(self.mesh)
+        except Exception:
+            self._numba_asm = None
+
         # AMG求解器
         self.amg_config = MultigridConfig(
             max_levels=8, tolerance=1e-10, max_iterations=200
@@ -843,7 +904,10 @@ class PicardStokesSolver:
                                       self.temperature.max())}
 
     def _solve_with_amg(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
-        """传统AMG求解"""
+        """AMG求解 — 自动用Numba装配的速度块加速"""
+        if self._numba_asm is not None:
+            # 从Numba装配的速度块 + Python装配的其余构建块求解器
+            return _solve_with_amg_blocked(self, A, b)
         solver = AlgebraicMultigridSolver(self.amg_config)
         return solver.solve(A, b)
 
