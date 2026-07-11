@@ -783,6 +783,7 @@ class NeuralAMGSolver:
             x = x0.copy()
 
         start_solve = time.time()
+        self.used_direct_fallback = False
         for iteration in range(self.amg_solver.config.max_iterations):
             x = self.amg_solver.v_cycle(0, b, x)
 
@@ -791,6 +792,11 @@ class NeuralAMGSolver:
 
             if residual_norm < self.amg_solver.config.tolerance:
                 break
+
+        residual_norm = np.linalg.norm(b - A @ x) if np.isfinite(x).all() else np.inf
+        if residual_norm > 1e-6 * max(np.linalg.norm(b), 1.0):
+            x = spsolve(A, b)
+            self.used_direct_fallback = True
 
         self.solve_time = time.time() - start_solve
 

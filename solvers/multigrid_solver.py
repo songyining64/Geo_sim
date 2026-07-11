@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import warnings
 import time
-from scipy.sparse.linalg import spsolve, cg, gmres
+from scipy.sparse.linalg import spsolve, cg, gmres, splu
 from scipy.linalg import solve_triangular
 
 
@@ -271,6 +271,7 @@ class BaseMultigridSolver(ABC):
         self.is_setup = False
         self.smoother = AdvancedSmoother()
         self.coarsening = AdaptiveCoarsening()
+        self._coarse_factorizations = {}
         
         # 性能统计
         self.performance_stats = {
@@ -373,7 +374,12 @@ class BaseMultigridSolver(ABC):
     def _solve_coarse_system(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
         """求解粗网格系统"""
         if self.config.coarse_solver == 'direct':
-            return spsolve(A, b)
+            key = id(A)
+            cached = self._coarse_factorizations.get(key)
+            if cached is None or cached[0] is not A:
+                cached = (A, splu(A.tocsc()))
+                self._coarse_factorizations[key] = cached
+            return cached[1].solve(np.asarray(b))
         elif self.config.coarse_solver == 'cg':
             return cg(A, b, tol=1e-10)[0]
         elif self.config.coarse_solver == 'gmres':
@@ -394,6 +400,7 @@ class AlgebraicMultigridSolver(BaseMultigridSolver):
         self.interpolation_operators = []
         self.restriction_operators = []
         self.coarse_matrices = []
+        self._coarse_factorizations = {}
     
     def setup(self, A: sp.spmatrix, b: np.ndarray, **kwargs) -> None:
         """设置AMG层次（增强版）"""
@@ -404,6 +411,7 @@ class AlgebraicMultigridSolver(BaseMultigridSolver):
         self.interpolation_operators = []
         self.restriction_operators = []
         self.coarse_matrices = []
+        self._coarse_factorizations = {}
         
         current_A = A.copy()
         current_level = 0

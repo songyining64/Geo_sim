@@ -16,7 +16,7 @@ Blankenbach 1989基准: 底部加热方腔, Ra=10^4~10^6, 等粘度或粘度对�
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.linalg import spsolve, lsmr
+from scipy.sparse.linalg import spsolve, lsmr, cg, gmres, splu, LinearOperator
 import time
 import warnings
 from typing import Dict, List, Tuple, Optional, Callable
@@ -62,6 +62,16 @@ class StokesConfig:
     meta_training_sequences: int = 20
     meta_training_epochs: int = 20
     meta_model_path: Optional[str] = None
+
+    # Blocked Stokes solver stabilization
+    meta_adapt_steps: int = 3
+    schur_scale: float = 0.5
+    velocity_solver_rtol: float = 1e-8
+    velocity_acceptance_rtol: float = 1e-6
+    full_blocked_acceptance_rtol: float = 1e-4
+    pressure_preconditioner: str = 'diag_schur'
+    velocity_jacobi_relaxation: float = 0.5
+    velocity_smoothing_steps: int = 1
 
     output_dir: str = './stokes_output'
 
@@ -230,6 +240,42 @@ class GlobalStokesAssembler:
 
         return A.tocsr()
 
+    def assemble_rhs(self, temperature: np.ndarray,
+                     rayleigh: float,
+                     thermal_expansivity: float = 1.0) -> np.ndarray:
+        """Assemble buoyancy forcing for the coupled 2D Stokes system."""
+        if self.mesh.dim != 2:
+            raise NotImplementedError("Buoyancy RHS currently implemented for 2D Stokes only")
+
+        n_dofs = self.mesh.n_dofs
+        rhs = np.zeros(n_dofs)
+        ndpn = self.mesh.n_dofs_per_node
+        basis = LagrangeTriangle(1)
+        quad_pts, quad_wts = triangle_points_weights(2)
+        gravity = np.array([0.0, -1.0])
+
+        for elem_nodes in self.mesh.elements:
+            coords = self.mesh.nodes[elem_nodes]
+            T_elem = temperature[elem_nodes]
+
+            for q, w in zip(quad_pts, quad_wts):
+                N = basis.evaluate(q.reshape(1, -1))[0]
+                dN_dxi = basis.evaluate_derivatives(q.reshape(1, -1))[0]
+                J = jacobian_matrix(coords, dN_dxi)
+                detJ = jacobian_det(J)
+                dV = detJ * w
+                # Remove the hydrostatic conductive reference profile; only the
+                # temperature anomaly should drive convection in Boussinesq form.
+                T_q = float(np.dot(N, T_elem) - 0.5)
+                body_force = rayleigh * thermal_expansivity * T_q * gravity
+
+                for a_local, a_global in enumerate(elem_nodes):
+                    for i in range(self.mesh.dim):
+                        row = a_global * ndpn + i
+                        rhs[row] += N[a_local] * body_force[i] * dV
+
+        return rhs
+
 
 class StokesBoundaryConditions:
     """Stokes边界条件处理器"""
@@ -293,8 +339,8 @@ class ViscosityModel:
         T依赖: η = η₀ × exp(Ea × (1/T - 1))
         应变率依赖(幂律): η ∝ ε̇^{(1-n)/n}
         """
-        # 基准粘度: 使Ra=config.rayleigh
-        eta0 = 1.0 / self.config.rayleigh
+        # 基准粘度采用无量纲 O(1) 标度；Rayleigh 数通过浮力项进入动量方程。
+        eta0 = 1.0
 
         # 温度依赖 (Frank-Kamenetskii近似)
         Ea = 0.0 if self.config.viscosity_contrast <= 1.0 else \
@@ -417,7 +463,10 @@ class BlockStokesSolver:
             AlgebraicMultigridSolver, MultigridConfig
         )
         self.amg_config = MultigridConfig(
-            max_levels=8, tolerance=1e-10, max_iterations=200
+            max_levels=8, tolerance=1e-10, max_iterations=200,
+            smoother='jacobi', relaxation_factor=config.velocity_jacobi_relaxation,
+            pre_smoothing_steps=config.velocity_smoothing_steps,
+            post_smoothing_steps=config.velocity_smoothing_steps,
         )
         self.meta_amg = None
         self._prev_A_vel = None          # 上一个Picard步的速度块矩阵
@@ -425,9 +474,155 @@ class BlockStokesSolver:
         self._Q_matrix = None
         self._prev_viscosity = None
         self._picard_step = 0
+        self.velocity_direct_fallbacks = 0
+        self.velocity_solve_calls = 0
+        self.velocity_cg_iterations = 0
+        self.full_direct_fallbacks = 0
+        self.velocity_direct_fallback_time = 0.0
+        self.full_direct_fallback_time = 0.0
+        self.pressure_krylov_iterations = 0
+        self.pressure_solver_fallbacks = 0
+        self.pressure_preconditioner_fallbacks = 0
+        self.traditional_hierarchy_setups = 0
+        self.adapted_hierarchy_setups = 0
+        self.traditional_hierarchy_setup_time = 0.0
+        self.adapted_hierarchy_setup_time = 0.0
+        self.meta_adaptation_time = 0.0
+        self.traditional_velocity_krylov_iterations = 0
+        self.adapted_velocity_krylov_iterations = 0
+        self.traditional_velocity_solve_calls = 0
+        self.adapted_velocity_solve_calls = 0
+        self.velocity_solver_breakdown = {
+            'rhs': 0,
+            'schur_columns': 0,
+            'back_substitution': 0,
+        }
+
+    def reset_stats(self):
+        self.velocity_direct_fallbacks = 0
+        self.velocity_solve_calls = 0
+        self.velocity_cg_iterations = 0
+        self.full_direct_fallbacks = 0
+        self.velocity_direct_fallback_time = 0.0
+        self.full_direct_fallback_time = 0.0
+        self.pressure_krylov_iterations = 0
+        self.pressure_solver_fallbacks = 0
+        self.pressure_preconditioner_fallbacks = 0
+        self.traditional_hierarchy_setups = 0
+        self.adapted_hierarchy_setups = 0
+        self.traditional_hierarchy_setup_time = 0.0
+        self.adapted_hierarchy_setup_time = 0.0
+        self.meta_adaptation_time = 0.0
+        self.traditional_velocity_krylov_iterations = 0
+        self.adapted_velocity_krylov_iterations = 0
+        self.traditional_velocity_solve_calls = 0
+        self.adapted_velocity_solve_calls = 0
+        self.velocity_solver_breakdown = {
+            'rhs': 0,
+            'schur_columns': 0,
+            'back_substitution': 0,
+        }
+
+    def get_stats(self) -> Dict:
+        return {
+            'velocity_solve_calls': self.velocity_solve_calls,
+            'velocity_direct_fallbacks': self.velocity_direct_fallbacks,
+            'velocity_cg_iterations': self.velocity_cg_iterations,
+            'velocity_krylov_iterations': self.velocity_cg_iterations,
+            'full_direct_fallbacks': self.full_direct_fallbacks,
+            'velocity_direct_fallback_time': self.velocity_direct_fallback_time,
+            'full_direct_fallback_time': self.full_direct_fallback_time,
+            'pressure_krylov_iterations': self.pressure_krylov_iterations,
+            'pressure_solver_fallbacks': self.pressure_solver_fallbacks,
+            'pressure_preconditioner_fallbacks': self.pressure_preconditioner_fallbacks,
+            'traditional_hierarchy_setups': self.traditional_hierarchy_setups,
+            'adapted_hierarchy_setups': self.adapted_hierarchy_setups,
+            'traditional_hierarchy_setup_time': self.traditional_hierarchy_setup_time,
+            'adapted_hierarchy_setup_time': self.adapted_hierarchy_setup_time,
+            'meta_adaptation_time': self.meta_adaptation_time,
+            'traditional_velocity_krylov_iterations': self.traditional_velocity_krylov_iterations,
+            'adapted_velocity_krylov_iterations': self.adapted_velocity_krylov_iterations,
+            'traditional_velocity_solve_calls': self.traditional_velocity_solve_calls,
+            'adapted_velocity_solve_calls': self.adapted_velocity_solve_calls,
+            'velocity_solver_breakdown': dict(self.velocity_solver_breakdown),
+        }
 
     def set_meta_amg(self, meta_amg):
         self.meta_amg = meta_amg
+
+    def _solve_velocity_system(self, A_vel: sp.spmatrix, rhs: np.ndarray, solver,
+                               phase: str = 'rhs') -> np.ndarray:
+        """Solve the SPD velocity block with CG + AMG preconditioning.
+
+        The AMG hierarchy is used as a preconditioner via one V-cycle per GMRES
+        application, not as a standalone approximate direct solver.
+        """
+        rhs = np.asarray(rhs).reshape(-1)
+        self.velocity_solve_calls += 1
+        if getattr(solver, '_hierarchy_source', 'traditional') == 'adapted':
+            self.adapted_velocity_solve_calls += 1
+        else:
+            self.traditional_velocity_solve_calls += 1
+        self.velocity_solver_breakdown[phase] = self.velocity_solver_breakdown.get(phase, 0) + 1
+        try:
+            if not getattr(solver, 'is_setup', False):
+                setup_start = time.time()
+                solver.setup(A_vel, rhs)
+                setup_time = time.time() - setup_start
+                if getattr(solver, '_hierarchy_source', 'traditional') == 'adapted':
+                    self.adapted_hierarchy_setups += 1
+                    self.adapted_hierarchy_setup_time += setup_time
+                else:
+                    self.traditional_hierarchy_setups += 1
+                    self.traditional_hierarchy_setup_time += setup_time
+
+            def precondition(vec):
+                return solver.v_cycle(0, vec, np.zeros_like(vec))
+
+            M = LinearOperator(A_vel.shape, matvec=precondition, dtype=float)
+            krylov_iters = {'count': 0}
+
+            def callback(_):
+                krylov_iters['count'] += 1
+
+            try:
+                x, info = gmres(
+                    A_vel, rhs, M=M,
+                    restart=min(50, A_vel.shape[0]),
+                    maxiter=max(50, min(500, 2 * A_vel.shape[0])),
+                    rtol=self.config.velocity_solver_rtol, atol=1e-10,
+                    callback=callback,
+                    callback_type='legacy',
+                )
+            except TypeError:
+                x, info = gmres(
+                    A_vel, rhs, M=M,
+                    restart=min(50, A_vel.shape[0]),
+                    tol=self.config.velocity_solver_rtol,
+                    maxiter=max(50, min(500, 2 * A_vel.shape[0])),
+                    callback=callback,
+                )
+
+            residual = np.linalg.norm(A_vel @ x - rhs)
+            rhs_norm = np.linalg.norm(rhs)
+            if info == 0 and np.isfinite(residual) and residual <= self.config.velocity_acceptance_rtol * max(rhs_norm, 1.0):
+                if hasattr(solver, 'performance_stats'):
+                    solver.performance_stats['total_iterations'] = krylov_iters['count']
+                    solver.performance_stats['final_residual'] = residual
+                self.velocity_cg_iterations += krylov_iters['count']
+                if getattr(solver, '_hierarchy_source', 'traditional') == 'adapted':
+                    self.adapted_velocity_krylov_iterations += krylov_iters['count']
+                else:
+                    self.traditional_velocity_krylov_iterations += krylov_iters['count']
+                return x
+        except Exception:
+            pass
+
+        self.velocity_direct_fallbacks += 1
+        fallback_start = time.time()
+        x = spsolve(A_vel, rhs)
+        self.velocity_direct_fallback_time += time.time() - fallback_start
+        return x
 
     def _viscosity_changed_significantly(self, viscosity: np.ndarray) -> bool:
         if self._prev_viscosity is None:
@@ -478,11 +673,16 @@ class BlockStokesSolver:
 
     def solve_with_velocity_block(self, A_full, b_full, A_vel_prebuilt,
                                   temperature, viscosity, x0=None):
-        """块求解, 接受预装的速度块 + Meta-AMG在线适配"""
+        """块求解, 接受预装的速度块 + Meta-AMG在线适配.
+
+        Use block elimination rather than Uzawa iteration. The previous Uzawa
+        path was numerically unstable for the current saddle-point scaling and
+        corrupted the physical benchmark.  Here we reuse the velocity solver as
+        an approximate inverse inside the Schur complement construction.
+        """
         n_nodes = self.mesh.n_nodes
         nodal_dofs = 4
         n_dofs = n_nodes * nodal_dofs
-
         if x0 is None:
             x = np.zeros(n_dofs)
         else:
@@ -499,7 +699,22 @@ class BlockStokesSolver:
             b_vel = b_full[vel_idx]
 
         p_idx = [i * nodal_dofs + 2 for i in range(n_nodes)]
-        B = A_full[np.ix_(p_idx, vel_idx)]
+        t_idx = [i * nodal_dofs + 3 for i in range(n_nodes)]
+        B = A_full[np.ix_(p_idx, vel_idx)].tocsr()
+        G = A_full[np.ix_(vel_idx, p_idx)].tocsr()
+        b_p = b_full[p_idx]
+
+        # The assembled system is block upper triangular in temperature:
+        # solve K_T T = f_T first, then move velocity-temperature coupling to
+        # the momentum right-hand side before applying the Stokes block solve.
+        temperature_block = A_full[np.ix_(t_idx, t_idx)].tocsr()
+        velocity_temperature = A_full[np.ix_(vel_idx, t_idx)].tocsr()
+        temperature_solution = spsolve(temperature_block, b_full[t_idx])
+        if not np.isfinite(temperature_solution).all():
+            temperature_solution = lsmr(
+                temperature_block, b_full[t_idx], atol=1e-10, btol=1e-10)[0]
+        b_vel = b_vel - velocity_temperature @ temperature_solution
+        x[t_idx] = temperature_solution
 
         if self._Q_matrix is None:
             self._Q_matrix = self.assembler.assemble_pressure_mass_matrix(viscosity)
@@ -510,10 +725,15 @@ class BlockStokesSolver:
         # 后续迭代: Meta-AMG 从上一矩阵适配 → 快速获取C/F
         if self.meta_amg is not None and self._prev_A_vel is not None:
             try:
+                adapt_t0 = time.time()
                 coarse, fine = self.meta_amg.adapter.adapt(
                     self._prev_A_vel, self._prev_cf_labels, A_vel,
-                    adapt_steps=3
+                    adapt_steps=self.config.meta_adapt_steps
                 )
+                self.meta_amg.solver.n_adapted += 1
+                adapt_time = time.time() - adapt_t0
+                self.meta_amg.solver.total_adapt_time += adapt_time
+                self.meta_adaptation_time += adapt_time
             except Exception:
                 coarse, fine = None, None
         else:
@@ -522,9 +742,16 @@ class BlockStokesSolver:
         # ── AMG求解速度块 ──
         if coarse is not None and len(coarse) > 0:
             # 用适配的C/F构建AMG
+            hierarchy_start = time.time()
             vel_solver = self._build_amg_with_cf(A_vel, coarse, fine)
+            self.adapted_hierarchy_setups += 1
+            self.adapted_hierarchy_setup_time += time.time() - hierarchy_start
+            vel_solver._hierarchy_source = 'adapted'
         else:
+            if self.meta_amg is not None:
+                self.meta_amg.solver.n_traditional += 1
             vel_solver = AlgebraicMultigridSolver(self.amg_config)
+            vel_solver._hierarchy_source = 'traditional'
 
         # 保存当前状态供下一步Meta-AMG适配
         self._prev_A_vel = A_vel.copy()
@@ -536,18 +763,80 @@ class BlockStokesSolver:
             self._prev_cf_labels = self._extract_cf_from_solver(vel_solver, A_vel)
         self._picard_step += 1
 
-        # ── Uzawa迭代 ──
-        max_iter = 15
-        for k in range(max_iter):
-            u = x[vel_idx]; p = x[p_idx]
-            rhs_u = b_vel - B.T @ p
-            u_new = vel_solver.solve(A_vel, rhs_u)
-            div = B @ u_new
-            dp = spsolve(Q, div)
-            x[vel_idx] = u_new
-            x[p_idx] = p + dp
-            if np.linalg.norm(div) < 1e-8:
-                break
+        def solve_velocity(rhs_u, phase='rhs'):
+            return self._solve_velocity_system(A_vel, rhs_u, vel_solver, phase=phase)
+
+        # Matrix-free Schur complement: S = C - B A_u^{-1} G.  The velocity
+        # inverse is supplied by the same AMG-preconditioned Krylov path used for
+        # the final back-substitution, so no dense Schur matrix is assembled.
+        Ainv_b = solve_velocity(b_vel, phase='rhs')
+        pressure_block = A_full[np.ix_(p_idx, p_idx)].tocsr()
+        rhs_p = b_p - B @ Ainv_b
+
+        def schur_matvec(p_vec):
+            return pressure_block @ p_vec - B @ solve_velocity(
+                G @ p_vec, phase='schur_columns')
+
+        schur_operator = LinearOperator(
+            (len(p_idx), len(p_idx)), matvec=schur_matvec, dtype=float)
+        pressure_regularization = max(1e-10, 1e-8 * self.config.schur_scale)
+        Q_regularized = (Q + pressure_regularization * sp.eye(Q.shape[0], format='csr')).tocsc()
+        try:
+            if self.config.pressure_preconditioner == 'diag_schur':
+                velocity_diagonal = np.asarray(A_vel.diagonal(), dtype=float)
+                inverse_diagonal = np.zeros_like(velocity_diagonal)
+                usable = np.abs(velocity_diagonal) > 1e-12
+                inverse_diagonal[usable] = 1.0 / velocity_diagonal[usable]
+                approximate_schur = (
+                    pressure_block - B @ sp.diags(inverse_diagonal) @ G +
+                    pressure_regularization * Q
+                ).tocsc()
+                try:
+                    pressure_factor = splu(approximate_schur)
+                except Exception:
+                    self.pressure_preconditioner_fallbacks += 1
+                    pressure_factor = splu(Q_regularized)
+            else:
+                pressure_factor = splu(Q_regularized)
+            pressure_preconditioner = LinearOperator(
+                Q.shape, matvec=pressure_factor.solve, dtype=float)
+            pressure_iters = {'count': 0}
+
+            def pressure_callback(_):
+                pressure_iters['count'] += 1
+
+            try:
+                p, pressure_info = gmres(
+                    schur_operator, rhs_p, M=pressure_preconditioner,
+                    restart=min(50, len(p_idx)), maxiter=max(50, len(p_idx)),
+                    rtol=1e-8, atol=1e-10, callback=pressure_callback,
+                    callback_type='legacy')
+            except TypeError:
+                p, pressure_info = gmres(
+                    schur_operator, rhs_p, M=pressure_preconditioner,
+                    restart=min(50, len(p_idx)), maxiter=max(50, len(p_idx)),
+                    tol=1e-8, callback=pressure_callback)
+            self.pressure_krylov_iterations += pressure_iters['count']
+            pressure_residual = np.linalg.norm(schur_matvec(p) - rhs_p)
+            if (pressure_info != 0 or not np.isfinite(p).all() or
+                    pressure_residual > 1e-6 * max(np.linalg.norm(rhs_p), 1.0)):
+                raise ValueError("matrix-free Schur solve did not converge")
+        except Exception:
+            self.pressure_solver_fallbacks += 1
+            approximate_S = (pressure_block + self.config.schur_scale * Q).tocsr()
+            p = spsolve(approximate_S, rhs_p)
+
+        u = solve_velocity(b_vel - G @ p, phase='back_substitution')
+        x[vel_idx] = u
+        x[p_idx] = p
+
+        full_residual = np.linalg.norm(A_full @ x - b_full)
+        rhs_norm = np.linalg.norm(b_full)
+        if not np.isfinite(full_residual) or full_residual > self.config.full_blocked_acceptance_rtol * max(rhs_norm, 1.0):
+            self.full_direct_fallbacks += 1
+            fallback_start = time.time()
+            x = spsolve(A_full, b_full)
+            self.full_direct_fallback_time += time.time() - fallback_start
 
         return x
 
@@ -555,8 +844,7 @@ class BlockStokesSolver:
         """用给定的C/F递归构建完整多层级AMG层次"""
         from solvers.multigrid_solver import AdaptiveCoarsening
 
-        vel_solver = AlgebraicMultigridSolver.__new__(AlgebraicMultigridSolver)
-        vel_solver.config = self.amg_config
+        vel_solver = AlgebraicMultigridSolver(self.amg_config)
         vel_solver.levels = []
         vel_solver.interpolation_operators = []
         vel_solver.restriction_operators = []
@@ -698,13 +986,10 @@ def _solve_with_amg_blocked(self, A: sp.spmatrix, b: np.ndarray) -> np.ndarray:
     if self.meta_amg is not None:
         self._block_solver.set_meta_amg(self.meta_amg)
 
-    # 用Numba装配速度块
-    if self._numba_asm is not None:
-        A_vel = self._numba_asm.assemble_velocity_block(self.viscosity)
-        return self._block_solver.solve_with_velocity_block(
-            A, b, A_vel, self.temperature, self.viscosity)
-    else:
-        return self._block_solver.solve(A, b, self.temperature, self.viscosity)
+    # The standalone Numba velocity-block assembly is not yet guaranteed to
+    # match the monolithic Stokes assembly exactly. For benchmark correctness,
+    # always extract the velocity block from the current full operator.
+    return self._block_solver.solve(A, b, self.temperature, self.viscosity)
 
 
 # ============================================================================
@@ -980,7 +1265,11 @@ class PicardStokesSolver:
         for iteration in range(max_iterations):
             A_full = self.assembler.assemble(
                 self.viscosity, self.temperature, self.config.thermal_conductivity)
-            rhs = np.zeros(n_dofs)
+            rhs = self.assembler.assemble_rhs(
+                self.temperature,
+                rayleigh=self.config.rayleigh,
+                thermal_expansivity=self.config.thermal_expansivity,
+            )
             A_full, rhs = self.bc_handler.apply(A_full, rhs)
             A_velocity = A_full[vel_indices][:, vel_indices].tocsr()
 
@@ -1005,6 +1294,7 @@ class PicardStokesSolver:
                 'matrix': A_velocity,
                 'full_matrix': A_full,
                 'rhs': rhs,
+                'solution': self.velocity.copy(),
                 'viscosity': self.viscosity.copy(),
                 'temperature': self.temperature.copy(),
                 'strain_rate': strain_rate.copy(),
@@ -1036,12 +1326,19 @@ class PicardStokesSolver:
         )
 
         residual_history = []
+        if hasattr(self, '_block_solver'):
+            self._block_solver.reset_stats()
 
         for iteration in range(self.config.max_picard_iterations):
             # 1. 装配
             A = self.assembler.assemble(
                 self.viscosity, self.temperature,
                 self.config.thermal_conductivity
+            )
+            b = self.assembler.assemble_rhs(
+                self.temperature,
+                rayleigh=self.config.rayleigh,
+                thermal_expansivity=self.config.thermal_expansivity,
             )
 
             # 2. 边界条件
@@ -1053,6 +1350,9 @@ class PicardStokesSolver:
                 x = self._solve_with_meta_amg(A, b)
             else:
                 x = self._solve_with_amg(A, b)
+
+            self._last_linear_matrix = A
+            self._last_linear_rhs = b.copy()
 
             # 4. 更新
             x_old = self.velocity.copy()
@@ -1077,6 +1377,10 @@ class PicardStokesSolver:
             'residual_history': residual_history,
             'nusselt': self.total_nusselt,
             'viscosity_range': (self.viscosity.min(), self.viscosity.max()),
+            'linear_relative_residual': float(
+                np.linalg.norm(self._last_linear_rhs - self._last_linear_matrix @ self.velocity) /
+                max(np.linalg.norm(self._last_linear_rhs), 1e-14)
+            ),
         }
 
     def solve_timestep(self) -> Dict:
@@ -1119,18 +1423,23 @@ class PicardStokesSolver:
     def _compute_nusselt(self) -> float:
         """计算表面Nusselt数"""
         nx, ny = self.config.nx, self.config.ny
-        nu = 0.0
         dy = self.config.ly / ny
+        delta_T = self.config.boundary_temp_bottom - self.config.boundary_temp_top
+        if abs(delta_T) < 1e-12:
+            return 0.0
 
-        top_temps = [self.temperature[n]
-                     for n in self.mesh.top_nodes]
-        for i in range(len(self.mesh.top_nodes)):
-            if i > 0 and i < len(self.mesh.top_nodes) - 1:
-                dT_dy = (top_temps[i - 1] - top_temps[i + 1]) / (2 * dy)
-                nu += abs(dT_dy) / (self.config.boundary_temp_bottom -
-                                    self.config.boundary_temp_top) * self.config.ly / nx
+        top_fluxes = []
+        row_stride = nx + 1
+        for top_node in self.mesh.top_nodes:
+            below_node = top_node - row_stride
+            if below_node < 0:
+                continue
+            dT_dy = (self.temperature[top_node] - self.temperature[below_node]) / dy
+            top_fluxes.append(-dT_dy / delta_T)
 
-        return nu
+        if not top_fluxes:
+            return 0.0
+        return float(np.mean(top_fluxes))
 
 
 

@@ -57,7 +57,7 @@ except ImportError:
 class MetaAMGConfig:
     """元学习AMG配置"""
     # GNN架构
-    input_dim: int = 8       # 来自MatrixGraphBuilder的节点特征维度
+    input_dim: int = 8       # 默认矩阵特征维度; Stokes/Picard会自动扩展
     hidden_dim: int = 64
     num_layers: int = 3
     dropout: float = 0.1
@@ -87,8 +87,10 @@ class MetaAMGConfig:
     cf_threshold: float = 0.5
 
     # 收敛驱动损失参数
-    convergence_weight: float = 0.3  # λ: 收敛损失在总loss中的权重
+    convergence_weight: float = 1.0  # 主损失: 随机残差probe收敛损失
     convergence_target: float = 0.3  # 目标残差收缩比 (r_after/r_before)
+    bce_aux_weight: float = 0.2      # 辅助标签损失权重
+    convergence_probes: int = 2      # 每个task的随机残差probe数
 
     # Safety gate for transferring a learned hierarchy.  A proposal is judged
     # by current-matrix two-grid contraction, never C/F label accuracy alone.
@@ -326,7 +328,10 @@ class MatrixSequenceGenerator:
         try:
             from .neural_amg import MatrixGraphBuilder
         except ImportError:  # direct-file execution used by legacy tests
-            from neural_amg import MatrixGraphBuilder
+            try:
+                from gpu_acceleration.neural_amg import MatrixGraphBuilder
+            except ImportError:
+                from neural_amg import MatrixGraphBuilder
         from solvers.multigrid_solver import AdaptiveCoarsening
 
         graph_builder = MatrixGraphBuilder.__new__(MatrixGraphBuilder)
@@ -335,7 +340,10 @@ class MatrixSequenceGenerator:
         try:
             from .neural_amg import NeuralAMGConfig
         except ImportError:
-            from neural_amg import NeuralAMGConfig
+            try:
+                from gpu_acceleration.neural_amg import NeuralAMGConfig
+            except ImportError:
+                from neural_amg import NeuralAMGConfig
         nn_config_inst = NeuralAMGConfig()
         graph_builder.config = nn_config_inst
 
@@ -427,7 +435,10 @@ class StokesPicardSequenceGenerator:
         try:
             from .neural_amg import MatrixGraphBuilder, NeuralAMGConfig
         except ImportError:
-            from neural_amg import MatrixGraphBuilder, NeuralAMGConfig
+            try:
+                from gpu_acceleration.neural_amg import MatrixGraphBuilder, NeuralAMGConfig
+            except ImportError:
+                from neural_amg import MatrixGraphBuilder, NeuralAMGConfig
         return MatrixGraphBuilder(NeuralAMGConfig())
 
     def generate_sequence(self, rayleigh: float, contrast: float,
@@ -468,7 +479,7 @@ class StokesPicardSequenceGenerator:
             sequence = self.generate_sequence(rayleigh, contrast, seed=seq_id)
             if len(sequence) < 2:
                 continue
-            graphs = [graph_builder.matrix_to_graph(item['matrix']) for item in sequence]
+            raw_graphs = [graph_builder.matrix_to_graph(item['matrix']) for item in sequence]
             labels = []
             for item in sequence:
                 coarse, _ = AdaptiveCoarsening.algebraic_coarsening(
@@ -486,10 +497,20 @@ class StokesPicardSequenceGenerator:
                     'matrix_size': sequence[k]['matrix'].shape[0],
                     'rayleigh': rayleigh,
                     'contrast': contrast,
-                    'support_graph': graphs[k],
+                    'support_graph': _augment_graph_with_physics(
+                        raw_graphs[k], sequence[k],
+                        previous_physics=sequence[k - 1] if k > 0 else None,
+                        previous_graph=raw_graphs[k - 1] if k > 0 else None,
+                    ),
                     'support_labels': labels[k],
-                    'query_graph': graphs[k + 1],
+                    'query_graph': _augment_graph_with_physics(
+                        raw_graphs[k + 1], sequence[k + 1],
+                        previous_physics=sequence[k],
+                        previous_graph=raw_graphs[k],
+                    ),
                     'query_labels': labels[k + 1],
+                    'support_matrix': sequence[k]['matrix'],
+                    'query_matrix': sequence[k + 1]['matrix'],
                     'support_physics': sequence[k],
                     'query_physics': sequence[k + 1],
                 })
@@ -497,6 +518,97 @@ class StokesPicardSequenceGenerator:
         if not train_tasks or not val_tasks:
             raise RuntimeError("Stokes trajectory generation produced no train/validation tasks")
         return train_tasks, val_tasks
+
+
+PHYSICS_NODE_FEATURE_DIM = 6
+
+
+def _expected_input_dim(config: MetaAMGConfig) -> int:
+    if config.training_data_source == 'stokes_picard':
+        return 8 + PHYSICS_NODE_FEATURE_DIM
+    return config.input_dim
+
+
+def _repeat_to_graph_dofs(values: Optional[np.ndarray], num_nodes: int) -> np.ndarray:
+    if values is None:
+        return np.zeros(num_nodes, dtype=np.float32)
+    arr = np.asarray(values, dtype=np.float32).reshape(-1)
+    if arr.size == num_nodes:
+        return arr
+    if arr.size > 0 and num_nodes % arr.size == 0:
+        return np.repeat(arr, num_nodes // arr.size).astype(np.float32)
+    if arr.size == 0:
+        return np.zeros(num_nodes, dtype=np.float32)
+    src = np.linspace(0.0, 1.0, arr.size)
+    dst = np.linspace(0.0, 1.0, num_nodes)
+    return np.interp(dst, src, arr).astype(np.float32)
+
+
+def _normalize_feature(values: np.ndarray, log_scale: bool = False) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float32)
+    if log_scale:
+        arr = np.log10(np.abs(arr) + 1e-12)
+    lo = float(np.min(arr))
+    hi = float(np.max(arr))
+    if hi - lo < 1e-8:
+        return np.zeros_like(arr, dtype=np.float32)
+    return ((arr - lo) / (hi - lo)).astype(np.float32)
+
+
+def _relative_delta(curr: np.ndarray, prev: np.ndarray) -> np.ndarray:
+    curr = np.asarray(curr, dtype=np.float32)
+    prev = np.asarray(prev, dtype=np.float32)
+    return ((curr - prev) / (np.abs(prev) + 1e-6)).astype(np.float32)
+
+
+def _augment_graph_with_physics(graph: Dict,
+                                physics: Optional[Dict] = None,
+                                previous_physics: Optional[Dict] = None,
+                                previous_graph: Optional[Dict] = None) -> Dict:
+    if physics is None:
+        return {
+            'node_features': graph['node_features'].astype(np.float32),
+            'edge_index': graph['edge_index'],
+            'edge_attr': graph['edge_attr'],
+            'num_nodes': graph['num_nodes'],
+        }
+
+    num_nodes = graph['num_nodes']
+    viscosity = _repeat_to_graph_dofs(physics.get('viscosity'), num_nodes)
+    temperature = _repeat_to_graph_dofs(physics.get('temperature'), num_nodes)
+    strain_rate = _repeat_to_graph_dofs(physics.get('strain_rate'), num_nodes)
+
+    if previous_physics is not None:
+        prev_viscosity = _repeat_to_graph_dofs(previous_physics.get('viscosity'), num_nodes)
+        delta_viscosity = _relative_delta(
+            np.log10(np.abs(viscosity) + 1e-12),
+            np.log10(np.abs(prev_viscosity) + 1e-12),
+        )
+    else:
+        delta_viscosity = np.zeros(num_nodes, dtype=np.float32)
+
+    if previous_graph is not None:
+        delta_diag = _relative_delta(graph['node_features'][:, 0], previous_graph['node_features'][:, 0])
+        delta_row_sum = _relative_delta(graph['node_features'][:, 1], previous_graph['node_features'][:, 1])
+    else:
+        delta_diag = np.zeros(num_nodes, dtype=np.float32)
+        delta_row_sum = np.zeros(num_nodes, dtype=np.float32)
+
+    physics_features = np.column_stack([
+        _normalize_feature(viscosity, log_scale=True),
+        _normalize_feature(temperature),
+        _normalize_feature(strain_rate, log_scale=True),
+        delta_viscosity,
+        delta_diag,
+        delta_row_sum,
+    ]).astype(np.float32)
+
+    return {
+        'node_features': np.concatenate([graph['node_features'], physics_features], axis=1).astype(np.float32),
+        'edge_index': graph['edge_index'],
+        'edge_attr': graph['edge_attr'],
+        'num_nodes': num_nodes,
+    }
 
 
 # ============================================================================
@@ -527,7 +639,10 @@ class MAMLGNN(nn.Module):
             try:
                 from .neural_amg import MessagePassingLayer
             except ImportError:
-                from neural_amg import MessagePassingLayer
+                try:
+                    from gpu_acceleration.neural_amg import MessagePassingLayer
+                except ImportError:
+                    from neural_amg import MessagePassingLayer
             for i in range(config.num_layers - 1):
                 self.convs.append(
                     MessagePassingLayer(dims[i], dims[i + 1], config.dropout)
@@ -614,6 +729,7 @@ class MAMLTrainer:
         if not HAS_PYTORCH:
             raise ImportError("PyTorch required")
 
+        self.config.input_dim = _expected_input_dim(self.config)
         self.model = MAMLGNN(config)
         self.meta_optimizer = torch.optim.Adam(
             self.model.parameters(), lr=config.outer_lr
@@ -704,7 +820,13 @@ class MAMLTrainer:
     def _task_to_tensors(self, task: Dict) -> Dict[str, torch.Tensor]:
         """将task转为tensor"""
         def graph_to_tensors(g):
-            x = torch.tensor(g['node_features'], dtype=torch.float32)
+            x_np = np.asarray(g['node_features'], dtype=np.float32)
+            if x_np.shape[1] < self.config.input_dim:
+                pad = np.zeros((x_np.shape[0], self.config.input_dim - x_np.shape[1]), dtype=np.float32)
+                x_np = np.concatenate([x_np, pad], axis=1)
+            elif x_np.shape[1] > self.config.input_dim:
+                x_np = x_np[:, :self.config.input_dim]
+            x = torch.tensor(x_np, dtype=torch.float32)
             ei = torch.tensor(g['edge_index'], dtype=torch.long)
             return x, ei
 
@@ -721,6 +843,54 @@ class MAMLTrainer:
         }
 
     @staticmethod
+    def _task_matrix(task: Dict, which: str) -> Optional[sp.spmatrix]:
+        direct_key = f'{which}_matrix'
+        if direct_key in task:
+            return task[direct_key]
+        physics_key = f'{which}_physics'
+        if physics_key in task and task[physics_key] is not None:
+            return task[physics_key].get('matrix')
+        if which == 'query':
+            return task.get('matrix')
+        return None
+
+    def _sparse_matrix_to_torch(self, A: sp.spmatrix) -> torch.Tensor:
+        A = A.tocoo()
+        indices = torch.tensor(np.vstack([A.row, A.col]), dtype=torch.long, device=self.device)
+        values = torch.tensor(A.data, dtype=torch.float32, device=self.device)
+        return torch.sparse_coo_tensor(indices, values, size=A.shape, device=self.device).coalesce()
+
+    def _convergence_probe_loss(self, logits: torch.Tensor,
+                                matrix: Optional[sp.spmatrix]) -> torch.Tensor:
+        if matrix is None or matrix.shape[0] != logits.shape[0]:
+            return torch.zeros((), device=self.device)
+
+        A = self._sparse_matrix_to_torch(matrix)
+        diag = torch.tensor(matrix.diagonal(), dtype=torch.float32, device=self.device)
+        inv_diag = 1.0 / torch.clamp(torch.abs(diag), min=1e-6)
+        coarse_weight = torch.sigmoid(logits).clamp(1e-4, 1.0 - 1e-4)
+
+        probe_losses = []
+        for _ in range(max(1, self.config.convergence_probes)):
+            residual = torch.randn(logits.shape[0], device=self.device)
+            coarse_correction = coarse_weight * inv_diag * residual
+            residual_after = residual - torch.sparse.mm(
+                A, coarse_correction.unsqueeze(-1)).squeeze(-1)
+            ratio = torch.linalg.norm(residual_after) / (
+                torch.linalg.norm(residual) + 1e-12)
+            probe_losses.append(F.relu(ratio - self.config.convergence_target) ** 2)
+        return torch.stack(probe_losses).mean()
+
+    def _combined_loss(self, logits: torch.Tensor, labels: torch.Tensor,
+                       matrix: Optional[sp.spmatrix]) -> torch.Tensor:
+        probe_loss = self._convergence_probe_loss(logits, matrix)
+        bce_loss = F.binary_cross_entropy_with_logits(logits, labels)
+        if self.config.training_data_source != 'stokes_picard':
+            return bce_loss
+        return (self.config.convergence_weight * probe_loss +
+                self.config.bce_aux_weight * bce_loss)
+
+    @staticmethod
     def _functional_forward(model: MAMLGNN, params, x, edge_index):
         """Run ``model`` with differentiable, task-specific parameters."""
         try:
@@ -732,6 +902,7 @@ class MAMLTrainer:
 
     def _inner_loop(self, model: MAMLGNN,
                     s_x, s_ei, s_y,
+                    support_matrix: Optional[sp.spmatrix],
                     steps: int, lr: float,
                     first_order: bool = True):
         """
@@ -750,7 +921,7 @@ class MAMLTrainer:
         params = OrderedDict(model.named_parameters())
         for _ in range(steps):
             pred = self._functional_forward(model, params, s_x, s_ei)
-            loss = F.binary_cross_entropy_with_logits(pred, s_y)
+            loss = self._combined_loss(pred, s_y, support_matrix)
             grads = torch.autograd.grad(
                 loss, tuple(params.values()), create_graph=not first_order
             )
@@ -768,11 +939,11 @@ class MAMLTrainer:
         Returns:
             history: dict with train_meta_loss, val_meta_loss, val_accuracy
         """
-        loss_fn = nn.BCEWithLogitsLoss()
         history = {
             'train_meta_loss': [], 'val_meta_loss': [],
             'val_accuracy': [], 'val_adapt_accuracy': [],
             'val_conv_ratio': [], 'val_adapt_conv_ratio': [],
+            'val_probe_loss': [], 'val_adapt_probe_loss': [],
         }
 
         print(f"Meta-training on {len(train_tasks)} tasks...")
@@ -806,6 +977,7 @@ class MAMLTrainer:
                     adapted = self._inner_loop(
                         self.model,
                         t['s_x'], t['s_ei'], t['s_y'],
+                        self._task_matrix(task, 'support'),
                         steps=self.config.inner_steps,
                         lr=self.config.inner_lr,
                         first_order=False,  # need second-order grads for meta-update
@@ -814,7 +986,8 @@ class MAMLTrainer:
                     # Query loss
                     q_pred = self._functional_forward(
                         self.model, adapted, t['q_x'], t['q_ei'])
-                    q_loss = loss_fn(q_pred, t['q_y'])
+                    q_loss = self._combined_loss(
+                        q_pred, t['q_y'], self._task_matrix(task, 'query'))
                     meta_loss += q_loss
 
                 meta_loss = meta_loss / len(batch_tasks)
@@ -833,6 +1006,8 @@ class MAMLTrainer:
                 val_total = 0
                 adapt_correct = 0
                 adapt_total = 0
+                val_probe_loss = 0.0
+                adapt_probe_loss = 0.0
 
                 val_indices = np.random.choice(
                     len(val_tasks),
@@ -849,8 +1024,11 @@ class MAMLTrainer:
                         zs_pred = self.model(
                             t['q_x'], t['q_ei'], return_logits=True
                         )
-                        v_loss = loss_fn(zs_pred, t['q_y'])
+                        v_loss = self._combined_loss(
+                            zs_pred, t['q_y'], self._task_matrix(task, 'query'))
                         val_loss += v_loss.item()
+                        val_probe_loss += self._convergence_probe_loss(
+                            zs_pred, self._task_matrix(task, 'query')).item()
 
                         zs_binary = (torch.sigmoid(zs_pred) > 0.5).float()
                         val_correct += (zs_binary == t['q_y']).sum().item()
@@ -861,12 +1039,15 @@ class MAMLTrainer:
                     adapted = self._inner_loop(
                         self.model,
                         t['s_x'], t['s_ei'], t['s_y'],
+                        self._task_matrix(task, 'support'),
                         steps=self.config.adapt_steps,
                         lr=self.config.inner_lr,
                     )
                     with torch.no_grad():
                         a_pred = self._functional_forward(
                             self.model, adapted, t['q_x'], t['q_ei'])
+                        adapt_probe_loss += self._convergence_probe_loss(
+                            a_pred, self._task_matrix(task, 'query')).item()
                         a_binary = (torch.sigmoid(a_pred) > 0.5).float()
                         adapt_correct += (a_binary == t['q_y']).sum().item()
                         adapt_total += len(t['q_y'])
@@ -877,6 +1058,8 @@ class MAMLTrainer:
                 history['val_meta_loss'].append(avg_val_loss)
                 history['val_accuracy'].append(val_acc)
                 history['val_adapt_accuracy'].append(adapt_acc)
+                history['val_probe_loss'].append(val_probe_loss / len(val_indices))
+                history['val_adapt_probe_loss'].append(adapt_probe_loss / len(val_indices))
 
                 # 收敛质量评估 (每5 epoch评估一次, 省计算)
                 if (epoch + 1) % 5 == 0 and len(val_tasks) > 0:
@@ -886,9 +1069,9 @@ class MAMLTrainer:
                         for idx in val_indices[:eval_n]:
                             task = val_tasks[idx]
                             # 需要原始矩阵数据 — 从task metadata获取
-                            if 'matrix' not in task:
+                            A = self._task_matrix(task, 'query')
+                            if A is None:
                                 continue
-                            A = task['matrix']
                             t = self._task_to_tensors(task)
                             # Zero-shot
                             with torch.no_grad():
@@ -904,6 +1087,7 @@ class MAMLTrainer:
                             # Adapted
                             adapted = self._inner_loop(
                                 self.model, t['s_x'], t['s_ei'], t['s_y'],
+                                self._task_matrix(task, 'support'),
                                 steps=self.config.adapt_steps,
                                 lr=self.config.inner_lr,
                             )
@@ -999,7 +1183,10 @@ class MetaAMGAdapter:
         try:
             from .neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
         except ImportError:
-            from neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
+            try:
+                from gpu_acceleration.neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
+            except ImportError:
+                from neural_amg import MatrixGraphBuilder, NeuralAMGConfig as _NC
         nn_config = _NC()
         self.graph_builder = MatrixGraphBuilder(nn_config)
 
@@ -1019,6 +1206,8 @@ class MetaAMGAdapter:
               A_prev: sp.spmatrix,
               cf_prev: np.ndarray,
               A_curr: sp.spmatrix,
+              support_physics: Optional[Dict] = None,
+              query_physics: Optional[Dict] = None,
               adapt_steps: int = None,
               adapt_lr: float = None) -> Tuple[List[int], List[int]]:
         """
@@ -1046,15 +1235,30 @@ class MetaAMGAdapter:
         self.model.train()
 
         # 构建图
-        g_prev = self.graph_builder.matrix_to_graph(A_prev)
-        g_curr = self.graph_builder.matrix_to_graph(A_curr)
+        g_prev_raw = self.graph_builder.matrix_to_graph(A_prev)
+        g_curr_raw = self.graph_builder.matrix_to_graph(A_curr)
+        g_prev = _augment_graph_with_physics(g_prev_raw, support_physics)
+        g_curr = _augment_graph_with_physics(
+            g_curr_raw, query_physics,
+            previous_physics=support_physics,
+            previous_graph=g_prev_raw,
+        )
+
+        def aligned_features(g):
+            x_np = np.asarray(g['node_features'], dtype=np.float32)
+            if x_np.shape[1] < self.config.input_dim:
+                pad = np.zeros((x_np.shape[0], self.config.input_dim - x_np.shape[1]), dtype=np.float32)
+                x_np = np.concatenate([x_np, pad], axis=1)
+            elif x_np.shape[1] > self.config.input_dim:
+                x_np = x_np[:, :self.config.input_dim]
+            return x_np
 
         # 准备 tensors
-        s_x = torch.tensor(g_prev['node_features'], dtype=torch.float32).to(self.device)
+        s_x = torch.tensor(aligned_features(g_prev), dtype=torch.float32).to(self.device)
         s_ei = torch.tensor(g_prev['edge_index'], dtype=torch.long).to(self.device)
         s_y = torch.tensor(cf_prev, dtype=torch.float32).to(self.device)
 
-        q_x = torch.tensor(g_curr['node_features'], dtype=torch.float32).to(self.device)
+        q_x = torch.tensor(aligned_features(g_curr), dtype=torch.float32).to(self.device)
         q_ei = torch.tensor(g_curr['edge_index'], dtype=torch.long).to(self.device)
 
         # Inner loop: 在support上做梯度适配
@@ -1098,8 +1302,14 @@ class MetaAMGAdapter:
         """
         self.model.eval()
         g = self.graph_builder.matrix_to_graph(A)
+        x_np = np.asarray(g['node_features'], dtype=np.float32)
+        if x_np.shape[1] < self.config.input_dim:
+            pad = np.zeros((x_np.shape[0], self.config.input_dim - x_np.shape[1]), dtype=np.float32)
+            x_np = np.concatenate([x_np, pad], axis=1)
+        elif x_np.shape[1] > self.config.input_dim:
+            x_np = x_np[:, :self.config.input_dim]
 
-        x = torch.tensor(g['node_features'], dtype=torch.float32).to(self.device)
+        x = torch.tensor(x_np, dtype=torch.float32).to(self.device)
         ei = torch.tensor(g['edge_index'], dtype=torch.long).to(self.device)
 
         with torch.no_grad():
@@ -1224,6 +1434,10 @@ class MetaAMGSolver:
 
     def _validate_transfer(self, A: sp.spmatrix, coarse: List[int]):
         """Validate a learned first level against the current operator."""
+        if self.config.training_data_source != 'stokes_picard':
+            fine = [i for i in range(A.shape[0]) if i not in set(coarse)]
+            from solvers.hierarchy_transfer import HierarchyAssessment
+            return HierarchyAssessment(True, list(coarse), fine)
         if not self.config.validate_transferred_hierarchy:
             from solvers.hierarchy_transfer import HierarchyAssessment
             fine = [i for i in range(A.shape[0]) if i not in set(coarse)]
@@ -1372,6 +1586,7 @@ class MetaAMG:
 
     def __init__(self, config: MetaAMGConfig = None):
         self.config = config or MetaAMGConfig()
+        self.config.input_dim = _expected_input_dim(self.config)
         self.trainer = MAMLTrainer(self.config)
         self.adapter = MetaAMGAdapter(self.config, trainer=self.trainer)
         self.solver = MetaAMGSolver(self.config)

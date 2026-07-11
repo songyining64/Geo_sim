@@ -229,6 +229,19 @@ class TestNeuralAMG:
         error = np.linalg.norm(x - x_exact) / np.linalg.norm(x_exact)
         assert error < 0.01
 
+    def test_nonconvergent_neural_hierarchy_falls_back_to_direct_solve(self, monkeypatch):
+        solver = NeuralAMGSolver(NeuralAMGConfig())
+        n = 100
+        A = AMGDataGenerator.generate_poisson_matrix(n)
+        b = A @ np.ones(n)
+        monkeypatch.setattr(solver.amg_solver, 'v_cycle',
+                            lambda level, rhs, x: np.full_like(rhs, np.inf))
+
+        x = solver.solve(A, b)
+
+        assert solver.used_direct_fallback
+        assert np.linalg.norm(A @ x - b) <= 1e-6 * max(np.linalg.norm(b), 1.0)
+
     def test_cf_constraint(self):
         """验证C/F比例约束"""
         config = NeuralAMGConfig(
