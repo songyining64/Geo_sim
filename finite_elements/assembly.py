@@ -476,32 +476,36 @@ def stokes_heat_element_matrix_3d(node_coords, params):
         dN_dx_ = dN_dx(dN_dxi, J_inv)
         dV = detJ * w
 
-        # 速度块: ∫ η (∂u_i/∂x_j)(∂v_i/∂x_j) + η (∂u_i/∂x_j)(∂v_j/∂x_i) dΩ
+        # 速度块: 2η ε(u):ε(v)
         for a in range(n_nodes):
             for b in range(n_nodes):
                 for i in range(dim):
                     ia = a * (dim + 2) + i
                     for j in range(dim):
                         jb = b * (dim + 2) + j
-                        K[ia, jb] += eta * dN_dx_[a, j] * dN_dx_[b, j] * dV  # viscous
-                        K[ia, jb] += eta * dN_dx_[a, j] * dN_dx_[b, i] * dV  # symmetric grad
+                        value = eta * dN_dx_[a, j] * dN_dx_[b, i]
+                        if i == j:
+                            value += eta * np.dot(dN_dx_[a], dN_dx_[b])
+                        K[ia, jb] += value * dV
 
         # 压力块: ∫ -p (∇·u) dΩ
         for a in range(n_nodes):
-            p_idx = a * (dim + 2) + dim
+            pa = a * (dim + 2) + dim
             for b in range(n_nodes):
+                pb = b * (dim + 2) + dim
                 for i in range(dim):
-                    u_idx = b * (dim + 2) + i
-                    K[p_idx, u_idx] -= N[a] * dN_dx_[b, i] * dV
-                    K[u_idx, p_idx] -= dN_dx_[a, i] * N[b] * dV
+                    ua = a * (dim + 2) + i
+                    ub = b * (dim + 2) + i
+                    K[pa, ub] -= N[a] * dN_dx_[b, i] * dV
+                    K[ua, pb] -= dN_dx_[a, i] * N[b] * dV
 
-        # PSPG: ∫ τ ∇N_pa·∇N_pb dΩ (压力空间稳定化)
+        # PSPG momentum-residual term for the symmetric (-div u) pressure row.
         for a in range(n_nodes):
             pa = a * (dim + 2) + dim
             for b in range(n_nodes):
                 pb = b * (dim + 2) + dim
                 grad3 = dN_dx_[a, 0]*dN_dx_[b, 0] + dN_dx_[a, 1]*dN_dx_[b, 1] + dN_dx_[a, 2]*dN_dx_[b, 2]
-                K[pa, pb] += tau_pspg * grad3 * dV
+                K[pa, pb] -= tau_pspg * grad3 * dV
 
         # 温度块: ∫ κ ∇N·∇N dΩ
         T_ofs = dim + 1

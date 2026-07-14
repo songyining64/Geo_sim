@@ -1,0 +1,92 @@
+[
+  {
+    "params": {
+      "schur_scale": 0.25,
+      "velocity_solver_rtol": 1e-08,
+      "velocity_acceptance_rtol": 1e-06,
+      "full_blocked_acceptance_rtol": 0.0001
+    },
+    "n_seeds": 3,
+    "wall_time_mean": 2.229222297668457,
+    "wall_time_std": 0.02574094461934977,
+    "nusselt_mean": 0.9956403224187823,
+    "nusselt_std": 0.007031322664933495,
+    "rms_velocity_mean": 78.87057067299473,
+    "rms_velocity_std": 1.1801921493175593,
+    "velocity_fallbacks_mean": 2.0,
+    "velocity_solves_mean": 2.0,
+    "full_direct_fallbacks_mean": 1.0
+  },
+  {
+    "params": {
+      "schur_scale": 0.5,
+      "velocity_solver_rtol": 1e-08,
+      "velocity_acceptance_rtol": 1e-06,
+      "full_blocked_acceptance_rtol": 0.0001
+    },
+    "n_seeds": 3,
+    "wall_time_mean": 2.245033105214437,
+    "wall_time_std": 0.050560332408385415,
+    "nusselt_mean": 0.9956403224187823,
+    "nusselt_std": 0.007031322664933495,
+    "rms_velocity_mean": 78.87057067299473,
+    "rms_velocity_std": 1.1801921493175593,
+    "velocity_fallbacks_mean": 2.0,
+    "velocity_solves_mean": 2.0,
+    "full_direct_fallbacks_mean": 1.0
+  },
+  {
+    "params": {
+      "schur_scale": 1.0,
+      "velocity_solver_rtol": 1e-08,
+      "velocity_acceptance_rtol": 1e-06,
+      "full_blocked_acceptance_rtol": 0.0001
+    },
+    "n_seeds": 3,
+    "wall_time_mean": 2.2513572374979653,
+    "wall_time_std": 0.05046874744090363,
+    "nusselt_mean": 0.9956403224187823,
+    "nusselt_std": 0.007031322664933495,
+    "rms_velocity_mean": 78.87057067299473,
+    "rms_velocity_std": 1.1801921493175593,
+    "velocity_fallbacks_mean": 2.0,
+    "velocity_solves_mean": 2.0,
+    "full_direct_fallbacks_mean": 1.0
+  },
+  {
+    "params": {
+      "schur_scale": 0.5,
+      "velocity_solver_rtol": 1e-06,
+      "velocity_acceptance_rtol": 0.0001,
+      "full_blocked_acceptance_rtol": 0.001
+    },
+    "n_seeds": 3,
+    "wall_time_mean": 2.1839613119761148,
+    "wall_time_std": 0.0010852164987219675,
+    "nusselt_mean": 0.9956403224187823,
+    "nusselt_std": 0.007031322664933495,
+    "rms_velocity_mean": 78.87057067299473,
+    "rms_velocity_std": 1.1801921493175593,
+    "velocity_fallbacks_mean": 2.0,
+    "velocity_solves_mean": 2.0,
+    "full_direct_fallbacks_mean": 1.0
+  },
+  {
+    "params": {
+      "schur_scale": 0.5,
+      "velocity_solver_rtol": 1e-10,
+      "velocity_acceptance_rtol": 1e-08,
+      "full_blocked_acceptance_rtol": 1e-05
+    },
+    "n_seeds": 3,
+    "wall_time_mean": 2.1881746451059976,
+    "wall_time_std": 0.0035586366452247642,
+    "nusselt_mean": 0.9956403224187823,
+    "nusselt_std": 0.007031322664933495,
+    "rms_velocity_mean": 78.87057067299473,
+    "rms_velocity_std": 1.1801921493175593,
+    "velocity_fallbacks_mean": 2.0,
+    "velocity_solves_mean": 2.0,
+    "full_direct_fallbacks_mean": 1.0
+  }
+]

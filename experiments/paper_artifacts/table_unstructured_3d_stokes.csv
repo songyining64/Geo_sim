@@ -1,0 +1,4 @@
+seed,n_nodes,n_tetrahedra,min_tetra_volume,picard_iterations,linear_relative_residual,nusselt,velocity_direct_fallbacks,full_direct_fallbacks,finite_solution,passed
+0,32,135,0.0003679199534518366,2,1.077738363199259e-10,1.001623018388459,0,0,True,True
+1,32,136,0.0001610411703275646,2,1.8757247670860527e-10,0.9976059497538802,0,0,True,True
+2,32,142,4.291778941489928e-05,2,4.849092534392308e-11,0.9978532325100258,0,0,True,True

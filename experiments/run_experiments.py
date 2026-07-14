@@ -91,12 +91,17 @@ class ExperimentConfig:
     stokes_picard_iterations: int = 6
     stokes_rayleigh: float = 1e4
     stokes_viscosity_contrast: float = 1e2
+    meta_adapt_steps: int = 3
     periodic_rebuild_interval: int = 3
     matrix_change_threshold: float = 0.10
     nusselt_relative_tolerance: float = 0.02
     rms_velocity_relative_tolerance: float = 0.05
     velocity_field_relative_tolerance: float = 0.10
     linear_residual_tolerance: float = 1e-6
+    pressure_solver: str = 'matrix_free_schur'
+    schur_velocity_inverse: str = 'krylov'
+    meta_training_max_matrix_size: Optional[int] = None
+    velocity_solver_max_iterations: int = 500
 
 
 def apply_preset(config: ExperimentConfig, preset: str) -> None:
@@ -682,14 +687,22 @@ def benchmark_blocked_stokes_methods(config: ExperimentConfig, *, seed: int = 0)
         picard_tolerance=0.0,
     )
 
-    def build_solver(use_meta_amg: bool):
+    def build_solver(use_meta_amg: bool, trained_meta=None):
         cfg = StokesConfig(
             **common,
-            use_meta_amg=use_meta_amg,
+            use_meta_amg=use_meta_amg and trained_meta is None,
             meta_training_sequences=config.meta_tasks,
             meta_training_epochs=config.meta_epochs,
+            meta_adapt_steps=config.meta_adapt_steps,
+            pressure_solver=config.pressure_solver,
+            schur_velocity_inverse=config.schur_velocity_inverse,
+            meta_training_max_matrix_size=config.meta_training_max_matrix_size,
+            velocity_solver_max_iterations=config.velocity_solver_max_iterations,
         )
-        return PicardStokesSolver(cfg)
+        solver = PicardStokesSolver(cfg)
+        if trained_meta is not None:
+            solver.meta_amg = trained_meta
+        return solver
 
     traditional = _with_reproducible_seed(
         seed, lambda: build_solver(False))
@@ -727,6 +740,93 @@ def benchmark_blocked_stokes_methods(config: ExperimentConfig, *, seed: int = 0)
             'nusselt': float(meta_result['nusselt']),
             'rms_velocity': _rms_velocity_from_solver(meta),
             'velocity_field_relative_error': velocity_error,
+            'block_stats': meta_stats,
+        },
+    }
+
+
+def train_stokes_meta_amg_for_blocked_benchmark(config: ExperimentConfig, *, seed: int = 0):
+    cfg = StokesConfig(
+        nx=config.stokes_nx,
+        ny=config.stokes_ny,
+        rayleigh=config.stokes_rayleigh,
+        viscosity_contrast=config.stokes_viscosity_contrast,
+        max_picard_iterations=config.stokes_picard_iterations,
+        picard_tolerance=0.0,
+        use_meta_amg=True,
+        meta_training_sequences=config.meta_tasks,
+        meta_training_epochs=config.meta_epochs,
+        meta_adapt_steps=config.meta_adapt_steps,
+        pressure_solver=config.pressure_solver,
+        schur_velocity_inverse=config.schur_velocity_inverse,
+        meta_training_max_matrix_size=config.meta_training_max_matrix_size,
+        velocity_solver_max_iterations=config.velocity_solver_max_iterations,
+    )
+    solver = _with_reproducible_seed(seed, lambda: PicardStokesSolver(cfg))
+    return solver.meta_amg
+
+
+def benchmark_blocked_stokes_with_trained_meta(config: ExperimentConfig, trained_meta,
+                                               *, seed: int = 0) -> Dict:
+    common = dict(
+        nx=config.stokes_nx,
+        ny=config.stokes_ny,
+        rayleigh=config.stokes_rayleigh,
+        viscosity_contrast=config.stokes_viscosity_contrast,
+        max_picard_iterations=config.stokes_picard_iterations,
+        picard_tolerance=0.0,
+    )
+
+    def build_solver(use_meta_amg: bool):
+        cfg = StokesConfig(
+            **common,
+            use_meta_amg=False,
+            meta_training_sequences=config.meta_tasks,
+            meta_training_epochs=config.meta_epochs,
+            meta_adapt_steps=config.meta_adapt_steps,
+            pressure_solver=config.pressure_solver,
+            schur_velocity_inverse=config.schur_velocity_inverse,
+            meta_training_max_matrix_size=config.meta_training_max_matrix_size,
+            velocity_solver_max_iterations=config.velocity_solver_max_iterations,
+        )
+        solver = PicardStokesSolver(cfg)
+        if use_meta_amg:
+            solver.meta_amg = trained_meta
+        return solver
+
+    traditional = _with_reproducible_seed(seed, lambda: build_solver(False))
+    meta = _with_reproducible_seed(seed, lambda: build_solver(True))
+    _with_seed(seed, traditional.initialize_temperature)
+    _with_seed(seed, meta.initialize_temperature)
+    initial_temperature_difference = float(np.linalg.norm(meta.temperature - traditional.temperature))
+
+    traditional_start = time.time()
+    traditional_result = traditional.solve_picard()
+    traditional_wall = time.time() - traditional_start
+
+    meta_start = time.time()
+    meta_result = meta.solve_picard()
+    meta_wall = time.time() - meta_start
+
+    traditional_stats = traditional._block_solver.get_stats()
+    meta_stats = meta._block_solver.get_stats()
+    return {
+        'seed': seed,
+        'adapt_steps': config.meta_adapt_steps,
+        'initial_temperature_difference': initial_temperature_difference,
+        'traditional_blocked': {
+            'wall_time': float(traditional_wall),
+            'linear_relative_residual': float(traditional_result['linear_relative_residual']),
+            'nusselt': float(traditional_result['nusselt']),
+            'rms_velocity': _rms_velocity_from_solver(traditional),
+            'block_stats': traditional_stats,
+        },
+        'meta_blocked': {
+            'wall_time': float(meta_wall),
+            'linear_relative_residual': float(meta_result['linear_relative_residual']),
+            'nusselt': float(meta_result['nusselt']),
+            'rms_velocity': _rms_velocity_from_solver(meta),
+            'velocity_field_relative_error': _velocity_field_relative_error(meta, traditional),
             'block_stats': meta_stats,
         },
     }

@@ -366,7 +366,7 @@ class AMGDataGenerator:
         if anisotropic:
             eps = 10 ** np.random.uniform(-3, 2)
             # 对角缩放 + 弱耦合扰动
-            A_aniso = sp.diags([eps * np.ones(n)], [0], format='csr')
+            A_aniso = sp.diags([eps * np.ones(n)], [0], format='lil')
             # x方向的额外耦合（通过-diag和+off-diag模式）
             off_nx = -1.0 * np.ones(ny * (nx - 1))
             diag_x_mod = np.zeros(n)
@@ -404,7 +404,7 @@ class AMGDataGenerator:
         """生成随机对称正定稀疏矩阵"""
         density = np.random.uniform(0.02, 0.2)
         A = sp.random(n, n, density=density, format='lil')
-        A = (A + A.T) / 2  # 对称化
+        A = ((A + A.T) / 2).tolil()  # 对称化后继续以LIL修改结构
         A.setdiag(np.random.uniform(2, 10, n))  # 对角占优
         return A.tocsr()
 

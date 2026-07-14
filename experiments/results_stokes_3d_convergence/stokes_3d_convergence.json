@@ -1,0 +1,120 @@
+{
+  "benchmark": "3D manufactured divergence-free Stokes convergence",
+  "exact_velocity": "[sin(pi*x)cos(pi*y)cos(pi*z), -cos(pi*x)sin(pi*y)cos(pi*z), 0]",
+  "exact_pressure": "sin(pi*x)sin(pi*y)sin(pi*z)",
+  "discretization": "continuous P1 velocity / P1 pressure on linear tetrahedra with PSPG",
+  "pspg_beta": 0.15,
+  "boundary_conditions": "exact velocity Dirichlet on all faces; pressure pinned at (0,0,0)",
+  "levels": [
+    {
+      "n": 2,
+      "h": 0.5,
+      "n_nodes": 27,
+      "n_tetrahedra": 48,
+      "stokes_dofs": 108,
+      "matrix_nnz": 298,
+      "assembly_time": 0.14831829071044922,
+      "solve_time": 0.00013589859008789062,
+      "linear_relative_residual": 3.7516464910018144e-16,
+      "velocity_l2_error": 0.25885338958541493,
+      "velocity_relative_l2_error": 0.5177067791708297,
+      "velocity_h1_seminorm_error": 2.284359391366667,
+      "velocity_relative_h1_seminorm_error": 0.8396222266590542,
+      "pressure_l2_error": 0.39442556712728327,
+      "pressure_relative_l2_error": 1.1156039727562073,
+      "observed_orders": {
+        "velocity_l2_error": null,
+        "velocity_h1_seminorm_error": null,
+        "pressure_l2_error": null
+      }
+    },
+    {
+      "n": 3,
+      "h": 0.3333333333333333,
+      "n_nodes": 64,
+      "n_tetrahedra": 162,
+      "stokes_dofs": 256,
+      "matrix_nnz": 1576,
+      "assembly_time": 0.2749519348144531,
+      "solve_time": 0.00019478797912597656,
+      "linear_relative_residual": 1.7441612008669092e-16,
+      "velocity_l2_error": 0.14654049654625534,
+      "velocity_relative_l2_error": 0.29308099309251073,
+      "velocity_h1_seminorm_error": 1.6843571079882882,
+      "velocity_relative_h1_seminorm_error": 0.6190898292286845,
+      "pressure_l2_error": 0.5347693977112253,
+      "pressure_relative_l2_error": 1.512556269970611,
+      "observed_orders": {
+        "velocity_l2_error": 1.4032280693841854,
+        "velocity_h1_seminorm_error": 0.7514868045230688,
+        "pressure_l2_error": -0.7507555386920276
+      }
+    },
+    {
+      "n": 4,
+      "h": 0.25,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500,
+      "matrix_nnz": 5018,
+      "assembly_time": 0.5589518547058105,
+      "solve_time": 0.0007789134979248047,
+      "linear_relative_residual": 5.051254017329799e-16,
+      "velocity_l2_error": 0.0912508327240372,
+      "velocity_relative_l2_error": 0.18250166544807467,
+      "velocity_h1_seminorm_error": 1.313652324169174,
+      "velocity_relative_h1_seminorm_error": 0.4828363232349743,
+      "pressure_l2_error": 0.5145725204882615,
+      "pressure_relative_l2_error": 1.4554308745980136,
+      "observed_orders": {
+        "velocity_l2_error": 1.6465735768456464,
+        "velocity_h1_seminorm_error": 0.8640533594008574,
+        "pressure_l2_error": 0.13382524208139726
+      }
+    },
+    {
+      "n": 6,
+      "h": 0.16666666666666666,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372,
+      "matrix_nnz": 23936,
+      "assembly_time": 2.2474231719970703,
+      "solve_time": 0.006033182144165039,
+      "linear_relative_residual": 6.594823941754641e-16,
+      "velocity_l2_error": 0.043747567400526946,
+      "velocity_relative_l2_error": 0.0874951348010539,
+      "velocity_h1_seminorm_error": 0.9027870275112035,
+      "velocity_relative_h1_seminorm_error": 0.3318217164525836,
+      "pressure_l2_error": 0.371077534191718,
+      "pressure_relative_l2_error": 1.049565763091787,
+      "observed_orders": {
+        "velocity_l2_error": 1.8131673835264388,
+        "velocity_h1_seminorm_error": 0.9250608434280215,
+        "pressure_l2_error": 0.8062974207178925
+      }
+    },
+    {
+      "n": 8,
+      "h": 0.125,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916,
+      "matrix_nnz": 66574,
+      "assembly_time": 5.402005910873413,
+      "solve_time": 0.03261685371398926,
+      "linear_relative_residual": 8.90275731029331e-16,
+      "velocity_l2_error": 0.025227720037425135,
+      "velocity_relative_l2_error": 0.05045544007485028,
+      "velocity_h1_seminorm_error": 0.6842544563463695,
+      "velocity_relative_h1_seminorm_error": 0.2514995024032537,
+      "pressure_l2_error": 0.2588992355172903,
+      "pressure_relative_l2_error": 0.7322776203131582,
+      "observed_orders": {
+        "velocity_l2_error": 1.9135450911081306,
+        "velocity_h1_seminorm_error": 0.9634135789562871,
+        "pressure_l2_error": 1.251284415473389
+      }
+    }
+  ]
+}

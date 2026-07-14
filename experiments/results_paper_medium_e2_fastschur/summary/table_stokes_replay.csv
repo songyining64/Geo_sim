@@ -1,0 +1,5 @@
+method,setup_time,solve_time,total_time,iterations,fallback_rate,accepted_rate
+traditional,0.0209,0.0780,0.0989,100.0000,0.0000,1.0000
+reuse,0.0207,0.0752,0.0959,100.0000,0.7500,0.2500
+zero_shot,0.0212,0.0761,0.0973,100.0000,0.7500,0.2500
+adapted,0.0207,0.0762,0.0969,100.0000,0.7500,0.2500

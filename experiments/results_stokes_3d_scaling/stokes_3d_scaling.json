@@ -1,0 +1,1666 @@
+{
+  "benchmark": "3D Stokes shared-trajectory scaling replay",
+  "config": {
+    "levels": "10",
+    "contrast": 10000.0,
+    "seeds": "0",
+    "picard_iterations": 3,
+    "meta_tasks": 2,
+    "meta_epochs": 1,
+    "output": "experiments/results_stokes_3d_scaling",
+    "append": true
+  },
+  "meta_training": [
+    {
+      "n": 4,
+      "seed": 0,
+      "training_time_s": 1.2031088749999999
+    },
+    {
+      "n": 4,
+      "seed": 1,
+      "training_time_s": 0.4165688749999994
+    },
+    {
+      "n": 4,
+      "seed": 2,
+      "training_time_s": 0.5754970000000021
+    },
+    {
+      "n": 6,
+      "seed": 0,
+      "training_time_s": 2.0977195
+    },
+    {
+      "n": 6,
+      "seed": 1,
+      "training_time_s": 1.2272122919999973
+    },
+    {
+      "n": 6,
+      "seed": 2,
+      "training_time_s": 1.945203915999997
+    },
+    {
+      "n": 8,
+      "seed": 0,
+      "training_time_s": 7.137032916999999
+    },
+    {
+      "n": 8,
+      "seed": 1,
+      "training_time_s": 3.0962267499999996
+    },
+    {
+      "n": 8,
+      "seed": 2,
+      "training_time_s": 5.353195416999995
+    },
+    {
+      "n": 10,
+      "seed": 0,
+      "training_time_s": 7.053707458
+    }
+  ],
+  "per_run": [
+    {
+      "method": "direct",
+      "setup_time_s": 0.015593500999999677,
+      "solve_time_s": 0.0003450829999991356,
+      "total_time_s": 0.01594824999999922,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 9.725780477152786e-16,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 252056,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.9705143340000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.951728419513908,
+      "element_viscosity_max": 7776.306780035902,
+      "element_viscosity_contrast": 2634.4926344262076,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 1.8949227333068848,
+      "solve_time_s": 1.671928891693116,
+      "total_time_s": 3.566851625000001,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 147,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 5.580781292623347e-09,
+      "max_solution_relative_error_vs_direct": 8.46980908716474e-09,
+      "python_peak_memory_bytes": 1115670,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.9705143340000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.951728419513908,
+      "element_viscosity_max": 7776.306780035902,
+      "element_viscosity_contrast": 2634.4926344262076,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 1.2844314575195312,
+      "solve_time_s": 0.907059126480469,
+      "total_time_s": 2.1914905840000003,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 139,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 5.593334412757944e-09,
+      "max_solution_relative_error_vs_direct": 8.46980908716474e-09,
+      "python_peak_memory_bytes": 1411845,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.9705143340000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.951728419513908,
+      "element_viscosity_max": 7776.306780035902,
+      "element_viscosity_contrast": 2634.4926344262076,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.015245124999998083,
+      "solve_time_s": 0.0002855420000020814,
+      "total_time_s": 0.015535458000000446,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 1.206824472863401e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 250128,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7746876670000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.930398239529186,
+      "element_viscosity_max": 7785.19144677605,
+      "element_viscosity_contrast": 2656.7008339545214,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 1.5531296730041504,
+      "solve_time_s": 1.4783419929958512,
+      "total_time_s": 3.0314716660000016,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 162,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.177624337286816e-09,
+      "max_solution_relative_error_vs_direct": 3.62237595802464e-09,
+      "python_peak_memory_bytes": 899583,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7746876670000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.930398239529186,
+      "element_viscosity_max": 7785.19144677605,
+      "element_viscosity_contrast": 2656.7008339545214,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 0.8521504402160645,
+      "solve_time_s": 0.7364240177839356,
+      "total_time_s": 1.588574458,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 168,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.177624337286816e-09,
+      "max_solution_relative_error_vs_direct": 3.62237595802464e-09,
+      "python_peak_memory_bytes": 1401227,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7746876670000002,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.930398239529186,
+      "element_viscosity_max": 7785.19144677605,
+      "element_viscosity_contrast": 2656.7008339545214,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.015061749999997431,
+      "solve_time_s": 0.0002900820000064641,
+      "total_time_s": 0.01535624999999996,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 1.05922378046609e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 250128,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7865465839999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.9118592987818963,
+      "element_viscosity_max": 7797.27651321767,
+      "element_viscosity_contrast": 2677.765548795392,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 1.4951293468475342,
+      "solve_time_s": 1.3205562371524628,
+      "total_time_s": 2.815685583999997,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 147,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 4.963932149928226e-09,
+      "max_solution_relative_error_vs_direct": 4.6375079625897164e-09,
+      "python_peak_memory_bytes": 877786,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7865465839999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.9118592987818963,
+      "element_viscosity_max": 7797.27651321767,
+      "element_viscosity_contrast": 2677.765548795392,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 1.2186501026153564,
+      "solve_time_s": 1.002844064384643,
+      "total_time_s": 2.2214941669999995,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 188,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 5.519758812088041e-09,
+      "max_solution_relative_error_vs_direct": 4.6375079625897164e-09,
+      "python_peak_memory_bytes": 1402912,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 1.7865465839999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 2.9118592987818963,
+      "element_viscosity_max": 7797.27651321767,
+      "element_viscosity_contrast": 2677.765548795392,
+      "trajectory_sparse_bytes": 528324,
+      "n": 4,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.12381150000000929,
+      "solve_time_s": 0.0014006660000021043,
+      "total_time_s": 0.12522074999999688,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 3.568976987917969e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 843744,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.095336291999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8133809890883779,
+      "element_viscosity_max": 8111.963045299378,
+      "element_viscosity_contrast": 4473.391468263611,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 10.990935325622559,
+      "solve_time_s": 5.894271299377436,
+      "total_time_s": 16.885206624999995,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 207,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.020051930330707e-09,
+      "max_solution_relative_error_vs_direct": 1.4890586796087282e-08,
+      "python_peak_memory_bytes": 3099900,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.095336291999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8133809890883779,
+      "element_viscosity_max": 8111.963045299378,
+      "element_viscosity_contrast": 4473.391468263611,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 7.231705188751221,
+      "solve_time_s": 3.756120311248779,
+      "total_time_s": 10.9878255,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 257,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.020051930330707e-09,
+      "max_solution_relative_error_vs_direct": 1.5816902444481344e-08,
+      "python_peak_memory_bytes": 4828380,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.095336291999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8133809890883779,
+      "element_viscosity_max": 8111.963045299378,
+      "element_viscosity_contrast": 4473.391468263611,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.1265542929999981,
+      "solve_time_s": 0.00142454200000941,
+      "total_time_s": 0.1279874589999963,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 3.617330635794741e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 843744,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.396120916000008,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.7992891139332075,
+      "element_viscosity_max": 8112.540829061611,
+      "element_viscosity_contrast": 4508.747797249643,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 11.128804445266724,
+      "solve_time_s": 6.1277600547332725,
+      "total_time_s": 17.256564499999996,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 192,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.723868376375574e-09,
+      "max_solution_relative_error_vs_direct": 1.1927889225779933e-08,
+      "python_peak_memory_bytes": 3105764,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.396120916000008,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.7992891139332075,
+      "element_viscosity_max": 8112.540829061611,
+      "element_viscosity_contrast": 4508.747797249643,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 7.358020305633545,
+      "solve_time_s": 4.255950736366458,
+      "total_time_s": 11.613971042000003,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 253,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.723868376375574e-09,
+      "max_solution_relative_error_vs_direct": 1.1927889225779933e-08,
+      "python_peak_memory_bytes": 4829460,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.396120916000008,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.7992891139332075,
+      "element_viscosity_max": 8112.540829061611,
+      "element_viscosity_contrast": 4508.747797249643,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.13474825000000124,
+      "solve_time_s": 0.0015248339999942573,
+      "total_time_s": 0.13628262500000687,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 3.12227047437088e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 843744,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.825053457999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8287403760884313,
+      "element_viscosity_max": 8100.843539297896,
+      "element_viscosity_contrast": 4429.739532860934,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 11.71664571762085,
+      "solve_time_s": 6.422502282379142,
+      "total_time_s": 18.13914799999999,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 192,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.37929138069745e-09,
+      "max_solution_relative_error_vs_direct": 2.087127299851065e-08,
+      "python_peak_memory_bytes": 3121081,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.825053457999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8287403760884313,
+      "element_viscosity_max": 8100.843539297896,
+      "element_viscosity_contrast": 4429.739532860934,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 5.354252338409424,
+      "solve_time_s": 2.734433828590582,
+      "total_time_s": 8.088686167000006,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 213,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 3.984189713905117e-09,
+      "max_solution_relative_error_vs_direct": 2.099456778316046e-08,
+      "python_peak_memory_bytes": 4828984,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 6.825053457999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.8287403760884313,
+      "element_viscosity_max": 8100.843539297896,
+      "element_viscosity_contrast": 4429.739532860934,
+      "trajectory_sparse_bytes": 1818180,
+      "n": 6,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.6010479589999989,
+      "solve_time_s": 0.00438174999999319,
+      "total_time_s": 0.6054374999999936,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 6.708443074532622e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 1977408,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.409375000000011,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 43.19036364555359,
+      "solve_time_s": 18.079091688446425,
+      "total_time_s": 61.269455334000014,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 270,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.0201785038944704e-09,
+      "max_solution_relative_error_vs_direct": 3.6751957334222336e-09,
+      "python_peak_memory_bytes": 7164161,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.409375000000011,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 17.987836360931396,
+      "solve_time_s": 8.613994306068605,
+      "total_time_s": 26.601830667,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 303,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.0201785038944704e-09,
+      "max_solution_relative_error_vs_direct": 5.554615462069799e-09,
+      "python_peak_memory_bytes": 11445157,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.409375000000011,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.5994049990000008,
+      "solve_time_s": 0.00442629299999453,
+      "total_time_s": 0.6038400830000228,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 5.621820600851921e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 1977408,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.332286625000023,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4876136053206896,
+      "element_viscosity_max": 8363.888953234818,
+      "element_viscosity_contrast": 5622.35309177062,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 44.260843992233276,
+      "solve_time_s": 17.84332909076676,
+      "total_time_s": 62.104173083000035,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 252,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.9043164632246355e-09,
+      "max_solution_relative_error_vs_direct": 5.056892149027951e-09,
+      "python_peak_memory_bytes": 7259209,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.332286625000023,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4876136053206896,
+      "element_viscosity_max": 8363.888953234818,
+      "element_viscosity_contrast": 5622.35309177062,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 28.102508783340454,
+      "solve_time_s": 8.686562341659567,
+      "total_time_s": 36.78907112500002,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 248,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.9043164632246355e-09,
+      "max_solution_relative_error_vs_direct": 5.4918281788265084e-09,
+      "python_peak_memory_bytes": 11446441,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 1,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.332286625000023,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4876136053206896,
+      "element_viscosity_max": 8363.888953234818,
+      "element_viscosity_contrast": 5622.35309177062,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 0.5985821670000178,
+      "solve_time_s": 0.004286417000002984,
+      "total_time_s": 0.6028763329999833,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 6.1743080247093516e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 1977408,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.191140458000007,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4717154926063,
+      "element_viscosity_max": 8363.862633359595,
+      "element_viscosity_contrast": 5683.070318535418,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 44.66959261894226,
+      "solve_time_s": 17.877530298057707,
+      "total_time_s": 62.54712291699997,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 237,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.581383628565276e-09,
+      "max_solution_relative_error_vs_direct": 4.534877460496116e-09,
+      "python_peak_memory_bytes": 7246293,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.191140458000007,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4717154926063,
+      "element_viscosity_max": 8363.862633359595,
+      "element_viscosity_contrast": 5683.070318535418,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 29.59857678413391,
+      "solve_time_s": 9.064667924866114,
+      "total_time_s": 38.663244709000026,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 228,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 2.581383628565276e-09,
+      "max_solution_relative_error_vs_direct": 5.004790629595436e-09,
+      "python_peak_memory_bytes": 11573697,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 2,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 15.191140458000007,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4717154926063,
+      "element_viscosity_max": 8363.862633359595,
+      "element_viscosity_contrast": 5683.070318535418,
+      "trajectory_sparse_bytes": 4287864,
+      "n": 8,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 2.3177471660000037,
+      "solve_time_s": 0.011986167000003434,
+      "total_time_s": 2.329752333000002,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 1.0808570076814986e-14,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 3863048,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 30.582359250000003,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "n": 10,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324
+    },
+    {
+      "method": "traditional_amg",
+      "setup_time_s": 133.61969590187073,
+      "solve_time_s": 50.002433182129266,
+      "total_time_s": 183.622129084,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 297,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 1.1916607674314854e-09,
+      "max_solution_relative_error_vs_direct": 5.512589025923873e-09,
+      "python_peak_memory_bytes": 14007927,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 30.582359250000003,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "n": 10,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324
+    },
+    {
+      "method": "meta_amg",
+      "setup_time_s": 53.6104097366333,
+      "solve_time_s": 20.787852472366723,
+      "total_time_s": 74.39826220900002,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 353,
+      "velocity_solve_calls": 6,
+      "max_linear_relative_residual": 1.6895093817497118e-09,
+      "max_solution_relative_error_vs_direct": 5.888606707017586e-09,
+      "python_peak_memory_bytes": 22549236,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "seed": 0,
+      "viscosity_contrast": 10000.0,
+      "trajectory_generation_time_s": 30.582359250000003,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "n": 10,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324
+    }
+  ],
+  "aggregate": [
+    {
+      "n": 4,
+      "method": "direct",
+      "n_seeds": 3,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500,
+      "setup_time_s": {
+        "mean": 0.01530012533333173,
+        "std": 0.00022054260208397556
+      },
+      "solve_time_s": {
+        "mean": 0.00030690233333589373,
+        "std": 2.706135473508477e-05
+      },
+      "total_time_s": {
+        "mean": 0.015613319333333209,
+        "std": 0.0002478746866477059
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 250770.66666666666,
+        "std": 908.8679160851091
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.0795421003482565e-15,
+        "std": 9.670392103665101e-17
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 1.8439161950000003,
+        "std": 0.08964922411562647
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 528324.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 2656.3196723920405,
+        "std": 17.668149169305163
+      }
+    },
+    {
+      "n": 4,
+      "method": "meta_amg",
+      "n_seeds": 3,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500,
+      "setup_time_s": {
+        "mean": 1.1184106667836506,
+        "std": 0.19018005127093646
+      },
+      "solve_time_s": {
+        "mean": 0.8821090695496826,
+        "std": 0.11018708125522367
+      },
+      "total_time_s": {
+        "mean": 2.000519736333333,
+        "std": 0.291546723532787
+      },
+      "velocity_krylov_iterations": {
+        "mean": 165.0,
+        "std": 20.11632835948615
+      },
+      "python_peak_memory_bytes": {
+        "mean": 1405328.0,
+        "std": 4659.275551699713
+      },
+      "max_linear_relative_residual": {
+        "mean": 4.763572520710934e-09,
+        "std": 1.1218369081208367e-09
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 5.576564335926366e-09,
+        "std": 2.0873862666980417e-09
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 1.8439161950000003,
+        "std": 0.08964922411562647
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 528324.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 2656.3196723920405,
+        "std": 17.668149169305163
+      }
+    },
+    {
+      "n": 4,
+      "method": "traditional_amg",
+      "n_seeds": 3,
+      "n_nodes": 125,
+      "n_tetrahedra": 384,
+      "stokes_dofs": 500,
+      "setup_time_s": {
+        "mean": 1.6477272510528564,
+        "std": 0.17639012499507956
+      },
+      "solve_time_s": {
+        "mean": 1.4902757072804766,
+        "std": 0.14369526956307369
+      },
+      "total_time_s": {
+        "mean": 3.1380029583333333,
+        "std": 0.3157787120464395
+      },
+      "velocity_krylov_iterations": {
+        "mean": 152.0,
+        "std": 7.0710678118654755
+      },
+      "python_peak_memory_bytes": {
+        "mean": 964346.3333333334,
+        "std": 107371.36915811816
+      },
+      "max_linear_relative_residual": {
+        "mean": 4.574112593279463e-09,
+        "std": 1.0190715719238319e-09
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 5.576564335926366e-09,
+        "std": 2.0873862666980417e-09
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 1.8439161950000003,
+        "std": 0.08964922411562647
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 528324.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 2656.3196723920405,
+        "std": 17.668149169305163
+      }
+    },
+    {
+      "n": 6,
+      "method": "direct",
+      "n_seeds": 3,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372,
+      "setup_time_s": {
+        "mean": 0.12837134766666955,
+        "std": 0.004646101655283012
+      },
+      "solve_time_s": {
+        "mean": 0.001450014000001924,
+        "std": 5.379615936246005e-05
+      },
+      "total_time_s": {
+        "mean": 0.12983027800000002,
+        "std": 0.004700230918372878
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 843744.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 3.4361926993611965e-15,
+        "std": 2.228525541292583e-16
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 6.4388368886666685,
+        "std": 0.29943310474897084
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 1818180.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 4470.62626612473,
+        "std": 32.31419933074514
+      }
+    },
+    {
+      "n": 6,
+      "method": "meta_amg",
+      "n_seeds": 3,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372,
+      "setup_time_s": {
+        "mean": 6.6479926109313965,
+        "std": 0.9162648077010525
+      },
+      "solve_time_s": {
+        "mean": 3.5821682920686064,
+        "std": 0.6332181845644307
+      },
+      "total_time_s": {
+        "mean": 10.230160903000003,
+        "std": 1.5356757673494128
+      },
+      "velocity_krylov_iterations": {
+        "mean": 241.0,
+        "std": 19.86621923433512
+      },
+      "python_peak_memory_bytes": {
+        "mean": 4828941.333333333,
+        "std": 441.93916122269843
+      },
+      "max_linear_relative_residual": {
+        "mean": 3.5760366735371325e-09,
+        "std": 4.0725182684429924e-10
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 1.624645315114058e-08,
+        "std": 3.7138973574857585e-09
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 6.4388368886666685,
+        "std": 0.29943310474897084
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 1818180.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 4470.62626612473,
+        "std": 32.31419933074514
+      }
+    },
+    {
+      "n": 6,
+      "method": "traditional_amg",
+      "n_seeds": 3,
+      "n_nodes": 343,
+      "n_tetrahedra": 1296,
+      "stokes_dofs": 1372,
+      "setup_time_s": {
+        "mean": 11.27879516283671,
+        "std": 0.3146816431267724
+      },
+      "solve_time_s": {
+        "mean": 6.148177878829951,
+        "std": 0.2161321486288257
+      },
+      "total_time_s": {
+        "mean": 17.42697304166666,
+        "std": 0.5259097174033708
+      },
+      "velocity_krylov_iterations": {
+        "mean": 197.0,
+        "std": 7.0710678118654755
+      },
+      "python_peak_memory_bytes": {
+        "mean": 3108915.0,
+        "std": 8929.549858008895
+      },
+      "max_linear_relative_residual": {
+        "mean": 3.0410705624679105e-09,
+        "std": 5.491224280609876e-10
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 1.589658300679262e-08,
+        "std": 3.71977146328023e-09
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 6.4388368886666685,
+        "std": 0.29943310474897084
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 1818180.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 4470.62626612473,
+        "std": 32.31419933074514
+      }
+    },
+    {
+      "n": 8,
+      "method": "direct",
+      "n_seeds": 3,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 0.5996783750000058,
+        "std": 0.0010250474378703162
+      },
+      "solve_time_s": {
+        "mean": 0.004364819999996901,
+        "std": 5.834547979243667e-05
+      },
+      "total_time_s": {
+        "mean": 0.6040513053333333,
+        "std": 0.001056205553243079
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 1977408.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 6.168190566697964e-15,
+        "std": 4.4363285687332505e-16
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 15.310934027666681,
+        "std": 0.09036418497814962
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 4287864.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 5645.470554949842,
+        "std": 26.819746149642285
+      }
+    },
+    {
+      "n": 8,
+      "method": "meta_amg",
+      "n_seeds": 3,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 25.22964064280192,
+        "std": 5.157024452688341
+      },
+      "solve_time_s": {
+        "mean": 8.788408190864763,
+        "std": 0.1975788626013357
+      },
+      "total_time_s": {
+        "mean": 34.01804883366668,
+        "std": 5.299581780822492
+      },
+      "velocity_krylov_iterations": {
+        "mean": 259.6666666666667,
+        "std": 31.710495984067414
+      },
+      "python_peak_memory_bytes": {
+        "mean": 11488431.666666666,
+        "std": 60293.97407885984
+      },
+      "max_linear_relative_residual": {
+        "mean": 2.501959531894794e-09,
+        "std": 3.652908641352976e-10
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 5.350411423497248e-09,
+        "std": 2.4573137178262694e-10
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 15.310934027666681,
+        "std": 0.09036418497814962
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 4287864.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 5645.470554949842,
+        "std": 26.819746149642285
+      }
+    },
+    {
+      "n": 8,
+      "method": "traditional_amg",
+      "n_seeds": 3,
+      "n_nodes": 729,
+      "n_tetrahedra": 3072,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 44.04026675224304,
+        "std": 0.6237095093227338
+      },
+      "solve_time_s": {
+        "mean": 17.933317025756963,
+        "std": 0.10401961307596237
+      },
+      "total_time_s": {
+        "mean": 61.973583778000005,
+        "std": 0.529716142915259
+      },
+      "velocity_krylov_iterations": {
+        "mean": 253.0,
+        "std": 13.490737563232042
+      },
+      "python_peak_memory_bytes": {
+        "mean": 7223221.0,
+        "std": 42093.29688521281
+      },
+      "max_linear_relative_residual": {
+        "mean": 2.501959531894794e-09,
+        "std": 3.652908641352976e-10
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 4.4223217809821e-09,
+        "std": 5.696623748429521e-10
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 15.310934027666681,
+        "std": 0.09036418497814962
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 4287864.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 5645.470554949842,
+        "std": 26.819746149642285
+      }
+    },
+    {
+      "n": 10,
+      "method": "direct",
+      "n_seeds": 1,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 2.3177471660000037,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 0.011986167000003434,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 2.329752333000002,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 3863048.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.0808570076814986e-14,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 30.582359250000003,
+        "std": 0.0
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 8400048.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 6398.554861921598,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 10,
+      "method": "meta_amg",
+      "n_seeds": 1,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 53.6104097366333,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 20.787852472366723,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 74.39826220900002,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 353.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 22549236.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.6895093817497118e-09,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 5.888606707017586e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 30.582359250000003,
+        "std": 0.0
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 8400048.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 6398.554861921598,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 10,
+      "method": "traditional_amg",
+      "n_seeds": 1,
+      "n_nodes": 1331,
+      "n_tetrahedra": 6000,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 133.61969590187073,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 50.002433182129266,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 183.622129084,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 297.0,
+        "std": 0.0
+      },
+      "python_peak_memory_bytes": {
+        "mean": 14007927.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.1916607674314854e-09,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 5.512589025923873e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "trajectory_generation_time_s": {
+        "mean": 30.582359250000003,
+        "std": 0.0
+      },
+      "trajectory_sparse_bytes": {
+        "mean": 8400048.0,
+        "std": 0.0
+      },
+      "element_viscosity_contrast": {
+        "mean": 6398.554861921598,
+        "std": 0.0
+      }
+    }
+  ],
+  "failures": [],
+  "tested_levels": [
+    4,
+    6,
+    8,
+    10
+  ]
+}

@@ -1,0 +1,3 @@
+method,wall_time,picard_iterations,nusselt,rms_velocity,valid_physics
+reference_direct,0.0558,3,1.0061,1.8257,yes
+meta_blocked,0.0789,3,0.9994,1.6900,yes

@@ -109,8 +109,9 @@ class TestGeodynamicSimulation:
     def test_add_material_no_mesh(self):
         """测试无网格时添加材料"""
         sim = GeodynamicSimulation()
-        with pytest.raises(ValueError):
-            sim.add_material(create_mantle_material())
+        with pytest.warns(UserWarning, match="材料添加失败"):
+            with pytest.raises(ValueError):
+                sim.add_material(create_mantle_material())
 
     def test_setup_solver(self):
         """测试设置求解器"""
@@ -149,7 +150,8 @@ class TestGeodynamicSimulation:
         sim.create_mesh("rectangular", nx=5, ny=5)
         sim.add_material(create_mantle_material())
         sim.setup_solver(solver_type="multigrid")
-        success = sim.setup()
+        with pytest.warns(UserWarning, match="未设置边界条件"):
+            success = sim.setup()
         assert success
 
     def test_physical_field_initialization(self):
@@ -158,7 +160,8 @@ class TestGeodynamicSimulation:
         sim.create_mesh("rectangular", nx=5, ny=5)
         sim.add_material(create_mantle_material())
         sim.setup_solver()
-        sim.setup()
+        with pytest.warns(UserWarning, match="未设置边界条件"):
+            sim.setup()
         
         n_nodes = len(sim.mesh.nodes)
         assert sim.temperature_field.shape == (n_nodes,)
@@ -177,7 +180,8 @@ class TestGeodynamicSimulation:
         sim.create_mesh("rectangular", nx=5, ny=5)
         sim.add_material(create_mantle_material())
         sim.setup_solver()
-        sim.setup()
+        with pytest.warns(UserWarning, match="未设置边界条件"):
+            sim.setup()
         
         try:
             result = sim.run()
@@ -251,7 +255,8 @@ class TestBugsAndEdgeCases:
         sim.create_mesh("rectangular", nx=3, ny=3)
         sim.add_material(create_mantle_material())
         sim.setup_solver()
-        sim.setup()
+        with pytest.warns(UserWarning, match="未设置边界条件"):
+            sim.setup()
         
         assert hasattr(sim, 'current_time')
         assert hasattr(sim, 'end_time')

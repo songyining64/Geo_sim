@@ -1,0 +1,209 @@
+{
+  "config": {
+    "preset": "paper_medium",
+    "meta_epochs": 20,
+    "meta_tasks": 60,
+    "n_runs": 3,
+    "sequence_length": 8,
+    "matrix_sizes": [
+      225,
+      400,
+      625
+    ],
+    "contrasts": [
+      100.0,
+      10000.0,
+      1000000.0
+    ],
+    "stokes_nx": 8,
+    "stokes_ny": 8,
+    "stokes_picard_iterations": 4,
+    "stokes_rayleigh": 10000.0,
+    "stokes_viscosity_contrast": 100.0
+  },
+  "experiment_6": {
+    "traditional": {
+      "method": "traditional",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.11287314891815185,
+      "setup_time_mean_std": 0.0019173424022332225,
+      "solve_time_mean_mean": 0.18849784533182778,
+      "solve_time_mean_std": 0.004367081708834438,
+      "total_time_mean_mean": 0.30138325691223145,
+      "total_time_mean_std": 0.00628356411956397,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": 2.945938556113916,
+      "residual_norm_mean_std": 2.137989229337986,
+      "fallback_rate_mean": 0.0,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 1.0,
+      "accepted_rate_std": 0.0
+    },
+    "reuse": {
+      "method": "reuse",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.014121707280476887,
+      "setup_time_mean_std": 0.00019845767119255932,
+      "solve_time_mean_mean": 0.023146732648213705,
+      "solve_time_mean_std": 0.00028217036516462065,
+      "total_time_mean_mean": 0.037297304471333816,
+      "total_time_mean_std": 0.0004372142154579525,
+      "iterations_mean_mean": 10.9,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": 0.00036884590230420924,
+      "residual_norm_mean_std": 0.00023332110540282968,
+      "fallback_rate_mean": 0.0,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 1.0,
+      "accepted_rate_std": 0.0
+    },
+    "zero_shot": {
+      "method": "zero_shot",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.030023924509684247,
+      "setup_time_mean_std": 7.719318688820491e-05,
+      "solve_time_mean_mean": 0.0855995257695516,
+      "solve_time_mean_std": 0.00028064698763585516,
+      "total_time_mean_mean": 0.11566156546274821,
+      "total_time_mean_std": 0.0003296565992124975,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": 19.755703261672476,
+      "residual_norm_mean_std": 5.020219692390831,
+      "fallback_rate_mean": 0.0,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 1.0,
+      "accepted_rate_std": 0.0
+    },
+    "adapted": {
+      "method": "adapted",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.03005368709564209,
+      "setup_time_mean_std": 6.618055712125884e-05,
+      "solve_time_mean_mean": 0.08581769466400146,
+      "solve_time_mean_std": 0.0005999049318299881,
+      "total_time_mean_mean": 0.1159129778544108,
+      "total_time_mean_std": 0.0006510598643584317,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": 27.62244491032297,
+      "residual_norm_mean_std": 4.412053495856007,
+      "fallback_rate_mean": 0.0,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 1.0,
+      "accepted_rate_std": 0.0
+    },
+    "neural_amg_setup_only": {
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.021858565012613934,
+      "setup_time_mean_std": 3.765121989693282e-05
+    }
+  },
+  "experiment_6_stokes_picard_replay": {
+    "traditional": {
+      "method": "traditional",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.01874264081319173,
+      "setup_time_mean_std": 0.000184719377019897,
+      "solve_time_mean_mean": 0.06955744822820027,
+      "solve_time_mean_std": 0.0005172262264310208,
+      "total_time_mean_mean": 0.0883108377456665,
+      "total_time_mean_std": 0.0003755343267361027,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": Infinity,
+      "residual_norm_mean_std": NaN,
+      "fallback_rate_mean": 0.0,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 1.0,
+      "accepted_rate_std": 0.0
+    },
+    "reuse": {
+      "method": "reuse",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.01914896567662557,
+      "setup_time_mean_std": 0.00033934232215880426,
+      "solve_time_mean_mean": 0.06927746534347534,
+      "solve_time_mean_std": 0.00037956292393080416,
+      "total_time_mean_mean": 0.08843690156936646,
+      "total_time_mean_std": 0.0006385821685144543,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": Infinity,
+      "residual_norm_mean_std": NaN,
+      "fallback_rate_mean": 0.75,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 0.25,
+      "accepted_rate_std": 0.0
+    },
+    "zero_shot": {
+      "method": "zero_shot",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.019805272420247395,
+      "setup_time_mean_std": 0.00019980466956140837,
+      "solve_time_mean_mean": 0.06966269016265869,
+      "solve_time_mean_std": 0.00032110133922515373,
+      "total_time_mean_mean": 0.08948049942652385,
+      "total_time_mean_std": 0.0003471163212189542,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": Infinity,
+      "residual_norm_mean_std": NaN,
+      "fallback_rate_mean": 0.75,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 0.25,
+      "accepted_rate_std": 0.0
+    },
+    "adapted": {
+      "method": "adapted",
+      "n_seeds": 3,
+      "setup_time_mean_mean": 0.01989932854970296,
+      "setup_time_mean_std": 0.00034634164778392525,
+      "solve_time_mean_mean": 0.06983745098114014,
+      "solve_time_mean_std": 0.0005612310197949417,
+      "total_time_mean_mean": 0.08974699179331462,
+      "total_time_mean_std": 0.0008359376741100058,
+      "iterations_mean_mean": 100.0,
+      "iterations_mean_std": 0.0,
+      "residual_norm_mean_mean": Infinity,
+      "residual_norm_mean_std": NaN,
+      "fallback_rate_mean": 0.75,
+      "fallback_rate_std": 0.0,
+      "accepted_rate_mean": 0.25,
+      "accepted_rate_std": 0.0
+    }
+  },
+  "experiment_6_stokes_picard_full": {
+    "reference_direct": {
+      "n_seeds": 3,
+      "wall_time_mean": 0.2710549036661784,
+      "wall_time_std": 0.0005939680845480459,
+      "nusselt_mean": 0.9956403224187823,
+      "nusselt_std": 0.007031322664933495,
+      "rms_velocity_mean": 78.87057067299473,
+      "rms_velocity_std": 1.1801921493175593,
+      "picard_iterations": [
+        4,
+        4,
+        4
+      ]
+    },
+    "meta_blocked": {
+      "n_seeds": 3,
+      "wall_time_mean": 2.177499612172445,
+      "wall_time_std": 0.010001917879156526,
+      "nusselt_mean": 0.9956403224187823,
+      "nusselt_std": 0.007031322664933495,
+      "rms_velocity_mean": 78.87057067299473,
+      "rms_velocity_std": 1.1801921493175593,
+      "valid_physics_rate": 1.0,
+      "block_stats": {
+        "velocity_solve_calls_mean": 2.0,
+        "velocity_direct_fallbacks_mean": 2.0,
+        "velocity_cg_iterations_mean": 0.0,
+        "full_direct_fallbacks_mean": 1.0
+      }
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "config": {
+    "meta_epochs": 10,
+    "meta_tasks": 30,
+    "matrix_sizes": [
+      100,
+      225,
+      400
+    ],
+    "contrasts": [
+      1000.0,
+      100000.0
+    ]
+  },
+  "experiment_2": [
+    {
+      "matrix_size": 100,
+      "traditional": {
+        "setup_time_mean": 2.0885467529296874e-05,
+        "solve_time_mean": 9.615421295166016e-05,
+        "total_time_mean": 0.00012264251708984374,
+        "iterations_mean": 1.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.00018415451049804687,
+        "solve_time_mean": 9.922981262207031e-05,
+        "total_time_mean": 0.0003052949905395508,
+        "iterations_mean": 1.0,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 2.269744873046875e-05,
+        "solve_time_mean": 0.00012195110321044922,
+        "total_time_mean": 0.00017287731170654297,
+        "iterations_mean": 1.0,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 2.334117889404297e-05,
+        "solve_time_mean": 0.00012190341949462891,
+        "total_time_mean": 0.0001767873764038086,
+        "iterations_mean": 1.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 0.894790602655771,
+      "reuse_speedup_vs_traditional": 0.11341273951320559
+    },
+    {
+      "matrix_size": 225,
+      "traditional": {
+        "setup_time_mean": 0.0346522331237793,
+        "solve_time_mean": 0.09238426685333252,
+        "total_time_mean": 0.12704834938049317,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.004626941680908203,
+        "solve_time_mean": 0.012705540657043457,
+        "total_time_mean": 0.017359542846679687,
+        "iterations_mean": 10.9,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 0.014201951026916505,
+        "solve_time_mean": 0.07405707836151124,
+        "total_time_mean": 0.08829145431518555,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 0.014334344863891601,
+        "solve_time_mean": 0.07394225597381592,
+        "total_time_mean": 0.08831470012664795,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 2.4174270573794217,
+      "reuse_speedup_vs_traditional": 7.489230578972319
+    },
+    {
+      "matrix_size": 400,
+      "traditional": {
+        "setup_time_mean": 0.11166019439697265,
+        "solve_time_mean": 0.18443565368652343,
+        "total_time_mean": 0.29610726833343504,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.014260625839233399,
+        "solve_time_mean": 0.02355949878692627,
+        "total_time_mean": 0.037848162651062014,
+        "iterations_mean": 10.9,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 0.03023064136505127,
+        "solve_time_mean": 0.0869447946548462,
+        "total_time_mean": 0.1172119140625,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 0.030217909812927247,
+        "solve_time_mean": 0.0871955156326294,
+        "total_time_mean": 0.11746289730072021,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 3.6951660484870574,
+      "reuse_speedup_vs_traditional": 7.8299645229998625
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "benchmark": "3D unstructured linear-tetra FEM and blocked Stokes validation",
+  "scope_note": "Poisson uses an affine manufactured solution; Stokes validates the runnable blocked path on the same mesh family.",
+  "config": {
+    "interior_points": 120,
+    "seeds": [
+      0,
+      1,
+      2
+    ]
+  },
+  "poisson_per_seed": [
+    {
+      "seed": 0,
+      "n_nodes": 128,
+      "n_tetrahedra": 732,
+      "n_boundary_nodes": 8,
+      "n_free_nodes": 120,
+      "matrix_nnz": 1858,
+      "min_tetra_volume": 1.877888142307136e-05,
+      "max_tetra_volume": 0.012378661715225564,
+      "assembly_time": 0.16321706771850586,
+      "solve_time": 0.0006971359252929688,
+      "symmetry_error": 0.0,
+      "solution_relative_error": 6.527765261100908e-16,
+      "free_residual_relative_norm": 1.0536965557365284e-15,
+      "passed": true
+    },
+    {
+      "seed": 1,
+      "n_nodes": 128,
+      "n_tetrahedra": 729,
+      "n_boundary_nodes": 8,
+      "n_free_nodes": 120,
+      "matrix_nnz": 1852,
+      "min_tetra_volume": 9.8360322141548e-06,
+      "max_tetra_volume": 0.012504712770840363,
+      "assembly_time": 0.10814833641052246,
+      "solve_time": 0.0005729198455810547,
+      "symmetry_error": 0.0,
+      "solution_relative_error": 7.12826976916994e-16,
+      "free_residual_relative_norm": 1.1497740534983644e-15,
+      "passed": true
+    },
+    {
+      "seed": 2,
+      "n_nodes": 128,
+      "n_tetrahedra": 750,
+      "n_boundary_nodes": 8,
+      "n_free_nodes": 120,
+      "matrix_nnz": 1894,
+      "min_tetra_volume": 1.021215625116478e-05,
+      "max_tetra_volume": 0.01773186177398814,
+      "assembly_time": 0.03953981399536133,
+      "solve_time": 0.0005192756652832031,
+      "symmetry_error": 0.0,
+      "solution_relative_error": 2.2596606199795586e-15,
+      "free_residual_relative_norm": 1.6655143862721294e-15,
+      "passed": true
+    }
+  ],
+  "stokes_per_seed": [
+    {
+      "seed": 0,
+      "n_nodes": 32,
+      "n_tetrahedra": 135,
+      "min_tetra_volume": 0.0003679199534518366,
+      "picard_iterations": 2,
+      "linear_relative_residual": 1.077738363199259e-10,
+      "nusselt": 1.001623018388459,
+      "velocity_direct_fallbacks": 0,
+      "full_direct_fallbacks": 0,
+      "finite_solution": true,
+      "passed": true
+    },
+    {
+      "seed": 1,
+      "n_nodes": 32,
+      "n_tetrahedra": 136,
+      "min_tetra_volume": 0.0001610411703275646,
+      "picard_iterations": 2,
+      "linear_relative_residual": 1.8757247670860527e-10,
+      "nusselt": 0.9976059497538802,
+      "velocity_direct_fallbacks": 0,
+      "full_direct_fallbacks": 0,
+      "finite_solution": true,
+      "passed": true
+    },
+    {
+      "seed": 2,
+      "n_nodes": 32,
+      "n_tetrahedra": 142,
+      "min_tetra_volume": 4.291778941489928e-05,
+      "picard_iterations": 2,
+      "linear_relative_residual": 4.849092534392308e-11,
+      "nusselt": 0.9978532325100258,
+      "velocity_direct_fallbacks": 0,
+      "full_direct_fallbacks": 0,
+      "finite_solution": true,
+      "passed": true
+    }
+  ],
+  "poisson_pass_rate": 1.0,
+  "stokes_pass_rate": 1.0
+}

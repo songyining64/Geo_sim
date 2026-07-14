@@ -37,6 +37,7 @@ torch = ["torch>=1.9.0", "torchvision>=0.10.0"]
 numba = ["numba>=0.56.0"]
 gnn = ["torch-geometric>=2.0.0", "networkx>=2.6.0"]
 viz = ["meshio>=5.0.0"]
+external-solvers = ["pyamg>=5.0.0", "petsc4py>=3.18.0"]
 full = ["geo_sim[torch,numba,gnn,viz]"]
 dev = ["pytest>=6.2.0", "pytest-cov>=2.12.0"]
 
@@ -56,3 +57,6 @@ include = ["core*", "finite_elements*", "materials*", "solvers*", "time_integrat
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+filterwarnings = [
+    "ignore::pyparsing.exceptions.PyparsingDeprecationWarning",
+]

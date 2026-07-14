@@ -22,7 +22,7 @@ try:
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
-    warnings.warn("matplotlib not available. Visualization features will be limited.")
+    warnings.warn("matplotlib not available. Visualization features will be limited.", ImportWarning)
 
 try:
     import plotly.graph_objects as go
@@ -31,7 +31,7 @@ try:
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
-    warnings.warn("plotly not available. Interactive visualization features will be limited.")
+    warnings.warn("plotly not available. Interactive visualization features will be limited.", ImportWarning)
 
 try:
     import seaborn as sns
@@ -797,4 +797,3 @@ def quick_debug_setup() -> DebugManager:
     )
     
     return DebugManager(config)
-

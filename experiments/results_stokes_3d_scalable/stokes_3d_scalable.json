@@ -1,0 +1,706 @@
+{
+  "benchmark": "Independent-process scalable 3D Stokes replay",
+  "config": {
+    "levels": "8,10,12",
+    "contrast": 10000.0,
+    "seeds": "0",
+    "picard_iterations": 3,
+    "methods": "direct,pyamg_rebuild,pyamg_reuse",
+    "timeout": 900,
+    "output": "experiments/results_stokes_3d_scalable",
+    "worker": false,
+    "n": null,
+    "seed": null,
+    "method": null,
+    "worker_output": null
+  },
+  "per_run": [
+    {
+      "method": "direct",
+      "setup_time_s": 0.5953604590000019,
+      "solve_time_s": 0.004827167000001964,
+      "total_time_s": 0.6001972920000007,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 6.708443074532622e-15,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 1980540,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 8,
+      "seed": 0,
+      "stokes_dofs": 2916,
+      "n_tetrahedra": 3072,
+      "peak_rss_bytes": 462733312,
+      "trajectory_generation_time_s": 14.960516458,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "subprocess_wall_time_s": 17.918712416
+    },
+    {
+      "method": "pyamg_rebuild",
+      "setup_time_s": 0.15504908561706543,
+      "solve_time_s": 16.320565789382936,
+      "total_time_s": 16.475614875,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 1104,
+      "velocity_solve_calls": 69,
+      "max_linear_relative_residual": 1.246607206433473e-09,
+      "max_solution_relative_error_vs_direct": 3.759976891037284e-09,
+      "python_peak_memory_bytes": 7324838,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 8,
+      "seed": 0,
+      "stokes_dofs": 2916,
+      "n_tetrahedra": 3072,
+      "peak_rss_bytes": 476610560,
+      "trajectory_generation_time_s": 15.467145625,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "subprocess_wall_time_s": 35.10400375
+    },
+    {
+      "method": "pyamg_reuse",
+      "setup_time_s": 0.11012506484985352,
+      "solve_time_s": 16.700643602150144,
+      "total_time_s": 16.810768666999998,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 1596,
+      "velocity_solve_calls": 69,
+      "max_linear_relative_residual": 2.175983282968107e-09,
+      "max_solution_relative_error_vs_direct": 4.435233902728402e-09,
+      "python_peak_memory_bytes": 6705723,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 8,
+      "seed": 0,
+      "stokes_dofs": 2916,
+      "n_tetrahedra": 3072,
+      "peak_rss_bytes": 476348416,
+      "trajectory_generation_time_s": 15.680343040999999,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.4882243117628455,
+      "element_viscosity_max": 8380.173619662648,
+      "element_viscosity_contrast": 5630.9882545434875,
+      "trajectory_sparse_bytes": 4287864,
+      "subprocess_wall_time_s": 35.812142458000004
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 2.373768040999998,
+      "solve_time_s": 0.013837707000000421,
+      "total_time_s": 2.3876169579999953,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 1.0808570076814986e-14,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 3864364,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 10,
+      "seed": 0,
+      "stokes_dofs": 5324,
+      "n_tetrahedra": 6000,
+      "peak_rss_bytes": 589348864,
+      "trajectory_generation_time_s": 31.406665041999997,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "subprocess_wall_time_s": 36.307915875000006
+    },
+    {
+      "method": "pyamg_rebuild",
+      "setup_time_s": 0.17969369888305664,
+      "solve_time_s": 49.36556821811694,
+      "total_time_s": 49.545261917,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 1647,
+      "velocity_solve_calls": 81,
+      "max_linear_relative_residual": 4.0736251189609606e-10,
+      "max_solution_relative_error_vs_direct": 6.062436607146323e-09,
+      "python_peak_memory_bytes": 12225770,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 10,
+      "seed": 0,
+      "stokes_dofs": 5324,
+      "n_tetrahedra": 6000,
+      "peak_rss_bytes": 593346560,
+      "trajectory_generation_time_s": 31.592719625,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "subprocess_wall_time_s": 86.31849145800001
+    },
+    {
+      "method": "pyamg_reuse",
+      "setup_time_s": 0.10242104530334473,
+      "solve_time_s": 49.37518378769665,
+      "total_time_s": 49.477604832999994,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 2399,
+      "velocity_solve_calls": 81,
+      "max_linear_relative_residual": 8.156902479987739e-10,
+      "max_solution_relative_error_vs_direct": 6.062519642520606e-09,
+      "python_peak_memory_bytes": 11872818,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 10,
+      "seed": 0,
+      "stokes_dofs": 5324,
+      "n_tetrahedra": 6000,
+      "peak_rss_bytes": 592330752,
+      "trajectory_generation_time_s": 31.4410735,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.336790020549523,
+      "element_viscosity_max": 8553.524285355423,
+      "element_viscosity_contrast": 6398.554861921598,
+      "trajectory_sparse_bytes": 8400048,
+      "subprocess_wall_time_s": 85.778102958
+    },
+    {
+      "method": "direct",
+      "setup_time_s": 7.5661525830000045,
+      "solve_time_s": 0.02898529200000155,
+      "total_time_s": 7.595156750000008,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 0,
+      "velocity_solve_calls": 0,
+      "max_linear_relative_residual": 1.1261808404447379e-14,
+      "max_solution_relative_error_vs_direct": 0.0,
+      "python_peak_memory_bytes": 6670652,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 12,
+      "seed": 0,
+      "stokes_dofs": 8788,
+      "n_tetrahedra": 10368,
+      "peak_rss_bytes": 845185024,
+      "trajectory_generation_time_s": 59.437265208,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.2598253677991318,
+      "element_viscosity_max": 8722.2629134143,
+      "element_viscosity_contrast": 6923.390444702483,
+      "trajectory_sparse_bytes": 14532084,
+      "subprocess_wall_time_s": 69.669682959
+    },
+    {
+      "method": "pyamg_rebuild",
+      "setup_time_s": 0.22449302673339844,
+      "solve_time_s": 126.6951956392666,
+      "total_time_s": 126.919688666,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 2373,
+      "velocity_solve_calls": 93,
+      "max_linear_relative_residual": 2.5971851974477315e-10,
+      "max_solution_relative_error_vs_direct": 3.856991012409283e-09,
+      "python_peak_memory_bytes": 19976566,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 12,
+      "seed": 0,
+      "stokes_dofs": 8788,
+      "n_tetrahedra": 10368,
+      "peak_rss_bytes": 856211456,
+      "trajectory_generation_time_s": 78.17606558300001,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.2598253677991318,
+      "element_viscosity_max": 8722.2629134143,
+      "element_viscosity_contrast": 6923.390444702483,
+      "trajectory_sparse_bytes": 14532084,
+      "subprocess_wall_time_s": 216.267291542
+    },
+    {
+      "method": "pyamg_reuse",
+      "setup_time_s": 0.14650630950927734,
+      "solve_time_s": 131.00620069049072,
+      "total_time_s": 131.152707,
+      "linear_solver_calls": 3,
+      "velocity_krylov_iterations": 3459,
+      "velocity_solve_calls": 93,
+      "max_linear_relative_residual": 2.597093270182558e-10,
+      "max_solution_relative_error_vs_direct": 3.953471299113757e-09,
+      "python_peak_memory_bytes": 19578344,
+      "velocity_fallbacks": 0,
+      "pressure_fallbacks": 0,
+      "full_fallbacks": 0,
+      "quality_accepted": true,
+      "n": 12,
+      "seed": 0,
+      "stokes_dofs": 8788,
+      "n_tetrahedra": 10368,
+      "peak_rss_bytes": 851755008,
+      "trajectory_generation_time_s": 61.423441542,
+      "nodal_viscosity_min": 1.0,
+      "nodal_viscosity_max": 10000.0,
+      "nodal_viscosity_contrast": 10000.0,
+      "element_viscosity_min": 1.2598253677991318,
+      "element_viscosity_max": 8722.2629134143,
+      "element_viscosity_contrast": 6923.390444702483,
+      "trajectory_sparse_bytes": 14532084,
+      "subprocess_wall_time_s": 203.33720225000002
+    }
+  ],
+  "aggregate": [
+    {
+      "n": 8,
+      "method": "direct",
+      "n_seeds": 1,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 0.5953604590000019,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 0.004827167000001964,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 0.6001972920000007,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 462733312.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 6.708443074532622e-15,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 8,
+      "method": "pyamg_rebuild",
+      "n_seeds": 1,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 0.15504908561706543,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 16.320565789382936,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 16.475614875,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 476610560.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 1104.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.246607206433473e-09,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 3.759976891037284e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 8,
+      "method": "pyamg_reuse",
+      "n_seeds": 1,
+      "stokes_dofs": 2916,
+      "setup_time_s": {
+        "mean": 0.11012506484985352,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 16.700643602150144,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 16.810768666999998,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 476348416.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 1596.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 2.175983282968107e-09,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 4.435233902728402e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 10,
+      "method": "direct",
+      "n_seeds": 1,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 2.373768040999998,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 0.013837707000000421,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 2.3876169579999953,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 589348864.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.0808570076814986e-14,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 10,
+      "method": "pyamg_rebuild",
+      "n_seeds": 1,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 0.17969369888305664,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 49.36556821811694,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 49.545261917,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 593346560.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 1647.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 4.0736251189609606e-10,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 6.062436607146323e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 10,
+      "method": "pyamg_reuse",
+      "n_seeds": 1,
+      "stokes_dofs": 5324,
+      "setup_time_s": {
+        "mean": 0.10242104530334473,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 49.37518378769665,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 49.477604832999994,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 592330752.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 2399.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 8.156902479987739e-10,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 6.062519642520606e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 12,
+      "method": "direct",
+      "n_seeds": 1,
+      "stokes_dofs": 8788,
+      "setup_time_s": {
+        "mean": 7.5661525830000045,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 0.02898529200000155,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 7.595156750000008,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 845185024.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 1.1261808404447379e-14,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 12,
+      "method": "pyamg_rebuild",
+      "n_seeds": 1,
+      "stokes_dofs": 8788,
+      "setup_time_s": {
+        "mean": 0.22449302673339844,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 126.6951956392666,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 126.919688666,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 856211456.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 2373.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 2.5971851974477315e-10,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 3.856991012409283e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    {
+      "n": 12,
+      "method": "pyamg_reuse",
+      "n_seeds": 1,
+      "stokes_dofs": 8788,
+      "setup_time_s": {
+        "mean": 0.14650630950927734,
+        "std": 0.0
+      },
+      "solve_time_s": {
+        "mean": 131.00620069049072,
+        "std": 0.0
+      },
+      "total_time_s": {
+        "mean": 131.152707,
+        "std": 0.0
+      },
+      "peak_rss_bytes": {
+        "mean": 851755008.0,
+        "std": 0.0
+      },
+      "velocity_krylov_iterations": {
+        "mean": 3459.0,
+        "std": 0.0
+      },
+      "max_linear_relative_residual": {
+        "mean": 2.597093270182558e-10,
+        "std": 0.0
+      },
+      "max_solution_relative_error_vs_direct": {
+        "mean": 3.953471299113757e-09,
+        "std": 0.0
+      },
+      "velocity_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "pressure_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "full_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    }
+  ],
+  "failures": []
+}

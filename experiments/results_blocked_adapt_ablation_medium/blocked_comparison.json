@@ -1,0 +1,1190 @@
+{
+  "preset": "paper_medium",
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "nx": 8,
+    "ny": 8,
+    "picard_iterations": 4,
+    "rayleigh": 10000.0,
+    "viscosity_contrast": 100.0,
+    "meta_tasks": 60,
+    "meta_epochs": 20,
+    "adapt_steps": [
+      1,
+      2,
+      3
+    ]
+  },
+  "per_seed_by_adapt_steps": {
+    "1": [
+      {
+        "seed": 0,
+        "adapt_steps": 1,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.3363280296325684,
+          "linear_relative_residual": 1.172419953608618e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793906591973,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4163,
+            "velocity_krylov_iterations": 4163,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.09357690811157227,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4163,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.122659921646118,
+          "linear_relative_residual": 2.4046324113652488e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793903464487,
+          "velocity_field_relative_error": 1.1157422664786819e-09,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3873,
+            "velocity_krylov_iterations": 3873,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.01924610137939453,
+            "adapted_hierarchy_setup_time": 0.02133345603942871,
+            "meta_adaptation_time": 0.061534881591796875,
+            "traditional_velocity_krylov_iterations": 1076,
+            "adapted_velocity_krylov_iterations": 2797,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 58,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 1,
+        "adapt_steps": 1,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.2194700241088867,
+          "linear_relative_residual": 2.0931453092006953e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.5618065008892,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4076,
+            "velocity_krylov_iterations": 4076,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07440638542175293,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4076,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.065548896789551,
+          "linear_relative_residual": 1.6275468433239432e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.56180660944541,
+          "velocity_field_relative_error": 1.5408813584834702e-09,
+          "block_stats": {
+            "velocity_solve_calls": 77,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3760,
+            "velocity_krylov_iterations": 3760,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 59,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.018938064575195312,
+            "adapted_hierarchy_setup_time": 0.021564960479736328,
+            "meta_adaptation_time": 0.06122016906738281,
+            "traditional_velocity_krylov_iterations": 1060,
+            "adapted_velocity_krylov_iterations": 2700,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 57,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 69,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 2,
+        "adapt_steps": 1,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.3270761966705322,
+          "linear_relative_residual": 1.3173698398163397e-09,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.42196584314868,
+          "block_stats": {
+            "velocity_solve_calls": 81,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4312,
+            "velocity_krylov_iterations": 4312,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 62,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07434391975402832,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4312,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 81,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 73,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.210181713104248,
+          "linear_relative_residual": 2.5657901500462275e-09,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.4219658257077,
+          "velocity_field_relative_error": 8.195482635186987e-10,
+          "block_stats": {
+            "velocity_solve_calls": 81,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4067,
+            "velocity_krylov_iterations": 4067,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 62,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.018982887268066406,
+            "adapted_hierarchy_setup_time": 0.03671526908874512,
+            "meta_adaptation_time": 0.06112408638000488,
+            "traditional_velocity_krylov_iterations": 1067,
+            "adapted_velocity_krylov_iterations": 3000,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 61,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 73,
+              "back_substitution": 4
+            }
+          }
+        }
+      }
+    ],
+    "2": [
+      {
+        "seed": 0,
+        "adapt_steps": 2,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.255937099456787,
+          "linear_relative_residual": 1.172419953608618e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793906591973,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4163,
+            "velocity_krylov_iterations": 4163,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07667088508605957,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4163,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.122328758239746,
+          "linear_relative_residual": 1.1990671320350423e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793906177133,
+          "velocity_field_relative_error": 9.088400681340728e-10,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3862,
+            "velocity_krylov_iterations": 3862,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.018982887268066406,
+            "adapted_hierarchy_setup_time": 0.021628141403198242,
+            "meta_adaptation_time": 0.06504940986633301,
+            "traditional_velocity_krylov_iterations": 1076,
+            "adapted_velocity_krylov_iterations": 2786,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 58,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 1,
+        "adapt_steps": 2,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.213447093963623,
+          "linear_relative_residual": 2.0931453092006953e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.5618065008892,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4076,
+            "velocity_krylov_iterations": 4076,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07520270347595215,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4076,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.08742618560791,
+          "linear_relative_residual": 3.026190097059341e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.56180659005946,
+          "velocity_field_relative_error": 1.3785373120010495e-09,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3783,
+            "velocity_krylov_iterations": 3783,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.019053220748901367,
+            "adapted_hierarchy_setup_time": 0.022111177444458008,
+            "meta_adaptation_time": 0.06456589698791504,
+            "traditional_velocity_krylov_iterations": 1060,
+            "adapted_velocity_krylov_iterations": 2723,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 58,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 2,
+        "adapt_steps": 2,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.3108930587768555,
+          "linear_relative_residual": 1.3173698398163397e-09,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.42196584314868,
+          "block_stats": {
+            "velocity_solve_calls": 81,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4312,
+            "velocity_krylov_iterations": 4312,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 62,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07410717010498047,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4312,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 81,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 73,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.232396125793457,
+          "linear_relative_residual": 2.1296239156570615e-09,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.4219658306248,
+          "velocity_field_relative_error": 1.0773115352842242e-09,
+          "block_stats": {
+            "velocity_solve_calls": 81,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4098,
+            "velocity_krylov_iterations": 4098,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 62,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.01860499382019043,
+            "adapted_hierarchy_setup_time": 0.03683805465698242,
+            "meta_adaptation_time": 0.063446044921875,
+            "traditional_velocity_krylov_iterations": 1067,
+            "adapted_velocity_krylov_iterations": 3031,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 61,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 73,
+              "back_substitution": 4
+            }
+          }
+        }
+      }
+    ],
+    "3": [
+      {
+        "seed": 0,
+        "adapt_steps": 3,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.27056622505188,
+          "linear_relative_residual": 1.172419953608618e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793906591973,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4163,
+            "velocity_krylov_iterations": 4163,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.0774533748626709,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4163,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.189919948577881,
+          "linear_relative_residual": 2.465876694366876e-09,
+          "nusselt": 0.9894027882752044,
+          "rms_velocity": 78.62793904658295,
+          "velocity_field_relative_error": 8.602398188998345e-10,
+          "block_stats": {
+            "velocity_solve_calls": 77,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3904,
+            "velocity_krylov_iterations": 3904,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 59,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.019253015518188477,
+            "adapted_hierarchy_setup_time": 0.021279096603393555,
+            "meta_adaptation_time": 0.06784439086914062,
+            "traditional_velocity_krylov_iterations": 1076,
+            "adapted_velocity_krylov_iterations": 2828,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 57,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 69,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 1,
+        "adapt_steps": 3,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.2247402667999268,
+          "linear_relative_residual": 2.0931453092006953e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.5618065008892,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4076,
+            "velocity_krylov_iterations": 4076,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07486224174499512,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4076,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 78,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.0966579914093018,
+          "linear_relative_residual": 2.7590656448081537e-09,
+          "nusselt": 1.0054657371988818,
+          "rms_velocity": 77.56180660264619,
+          "velocity_field_relative_error": 1.4621063666575377e-09,
+          "block_stats": {
+            "velocity_solve_calls": 78,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 3817,
+            "velocity_krylov_iterations": 3817,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 60,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.018520116806030273,
+            "adapted_hierarchy_setup_time": 0.022249937057495117,
+            "meta_adaptation_time": 0.06665205955505371,
+            "traditional_velocity_krylov_iterations": 1060,
+            "adapted_velocity_krylov_iterations": 2757,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 58,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 70,
+              "back_substitution": 4
+            }
+          }
+        }
+      },
+      {
+        "seed": 2,
+        "adapt_steps": 3,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 2.329102039337158,
+          "linear_relative_residual": 1.3173698398163397e-09,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.42196584314868,
+          "block_stats": {
+            "velocity_solve_calls": 81,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4312,
+            "velocity_krylov_iterations": 4312,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 62,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 0.07447981834411621,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 4312,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 81,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 73,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 2.2426581382751465,
+          "linear_relative_residual": 5.318332517159381e-10,
+          "nusselt": 0.9920524417822608,
+          "rms_velocity": 80.42196582949803,
+          "velocity_field_relative_error": 7.635773793906067e-10,
+          "block_stats": {
+            "velocity_solve_calls": 80,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 4101,
+            "velocity_krylov_iterations": 4101,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 61,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 0.018876075744628906,
+            "adapted_hierarchy_setup_time": 0.036659955978393555,
+            "meta_adaptation_time": 0.06674695014953613,
+            "traditional_velocity_krylov_iterations": 1067,
+            "adapted_velocity_krylov_iterations": 3034,
+            "traditional_velocity_solve_calls": 20,
+            "adapted_velocity_solve_calls": 60,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 72,
+              "back_substitution": 4
+            }
+          }
+        }
+      }
+    ]
+  },
+  "aggregate_by_adapt_steps": {
+    "1": {
+      "n_seeds": 3,
+      "traditional_setup_time": {
+        "mean": 0.08077573776245117,
+        "std": 0.009051830283440797
+      },
+      "meta_hierarchy_build_time": {
+        "mean": 0.045593579610188804,
+        "std": 0.007145083051627051
+      },
+      "meta_online_setup_time": {
+        "mean": 0.10688662528991699,
+        "std": 0.007027357904599488
+      },
+      "meta_adaptation_time": {
+        "mean": 0.06129304567972819,
+        "std": 0.00017544500938662758
+      },
+      "hierarchy_build_reduction_fraction": {
+        "mean": 0.4242687010970034,
+        "std": 0.1307186780432382
+      },
+      "online_setup_change_fraction": {
+        "mean": 0.34324707638306556,
+        "std": 0.19674264479334008
+      },
+      "setup_speedup_traditional_over_meta_online": {
+        "mean": 0.7614122939635695,
+        "std": 0.1162581582748077
+      },
+      "traditional_velocity_krylov_iterations": {
+        "mean": 4183.666666666667,
+        "std": 97.4485619299855
+      },
+      "meta_velocity_krylov_iterations": {
+        "mean": 3900.0,
+        "std": 126.77802122870773
+      },
+      "krylov_ratio_meta_over_traditional": {
+        "mean": 0.9319978429979039,
+        "std": 0.008535347170538155
+      },
+      "traditional_krylov_per_velocity_solve": {
+        "mean": 52.9542576764799,
+        "std": 0.49662264456069083
+      },
+      "adapted_krylov_per_velocity_solve": {
+        "mean": 48.25762895083951,
+        "std": 0.7400868480444727
+      },
+      "wall_time_reduction_fraction": {
+        "mean": 0.07034580231849157,
+        "std": 0.016843658160271474
+      },
+      "traditional_wall_time": {
+        "mean": 2.2942914168039956,
+        "std": 0.053041365661881563
+      },
+      "meta_wall_time": {
+        "mean": 2.132796843846639,
+        "std": 0.05947958071223434
+      },
+      "velocity_field_relative_error": {
+        "mean": 1.1587239628269503e-09,
+        "std": 2.9604721260703796e-10
+      },
+      "initial_temperature_difference": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    "2": {
+      "n_seeds": 3,
+      "traditional_setup_time": {
+        "mean": 0.07532691955566406,
+        "std": 0.0010503113353974628
+      },
+      "meta_hierarchy_build_time": {
+        "mean": 0.04573949178059896,
+        "std": 0.0068651687951918495
+      },
+      "meta_online_setup_time": {
+        "mean": 0.11009327570597331,
+        "std": 0.006219647720732466
+      },
+      "meta_adaptation_time": {
+        "mean": 0.06435378392537434,
+        "std": 0.0006715349331963308
+      },
+      "hierarchy_build_reduction_fraction": {
+        "mean": 0.3915979853951484,
+        "std": 0.09907837975123977
+      },
+      "online_setup_change_fraction": {
+        "mean": 0.46277573375346387,
+        "std": 0.10070596852631288
+      },
+      "setup_speedup_traditional_over_meta_online": {
+        "mean": 0.6867447389598763,
+        "std": 0.045222698981261994
+      },
+      "traditional_velocity_krylov_iterations": {
+        "mean": 4183.666666666667,
+        "std": 97.4485619299855
+      },
+      "meta_velocity_krylov_iterations": {
+        "mean": 3914.3333333333335,
+        "std": 133.8166241125851
+      },
+      "krylov_ratio_meta_over_traditional": {
+        "mean": 0.9353944100419049,
+        "std": 0.010591473201804445
+      },
+      "traditional_krylov_per_velocity_solve": {
+        "mean": 52.9542576764799,
+        "std": 0.49662264456069083
+      },
+      "adapted_krylov_per_velocity_solve": {
+        "mean": 48.223761070284525,
+        "std": 1.1266796298286568
+      },
+      "wall_time_reduction_fraction": {
+        "mean": 0.050042553948723624,
+        "std": 0.011404683414925466
+      },
+      "traditional_wall_time": {
+        "mean": 2.2600924173990884,
+        "std": 0.039890508603732146
+      },
+      "meta_wall_time": {
+        "mean": 2.147383689880371,
+        "std": 0.06177854583908318
+      },
+      "velocity_field_relative_error": {
+        "mean": 1.1215629718064487e-09,
+        "std": 1.9428933312591452e-10
+      },
+      "initial_temperature_difference": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    },
+    "3": {
+      "n_seeds": 3,
+      "traditional_setup_time": {
+        "mean": 0.07559847831726074,
+        "std": 0.001320869110350163
+      },
+      "meta_hierarchy_build_time": {
+        "mean": 0.045612732569376625,
+        "std": 0.0070175044775048455
+      },
+      "meta_online_setup_time": {
+        "mean": 0.11269386609395345,
+        "std": 0.006791714114785981
+      },
+      "meta_adaptation_time": {
+        "mean": 0.06708113352457683,
+        "std": 0.0005410929598219064
+      },
+      "hierarchy_build_reduction_fraction": {
+        "mean": 0.3954790206287691,
+        "std": 0.10017258517570296
+      },
+      "online_setup_change_fraction": {
+        "mean": 0.4920019534396864,
+        "std": 0.10693916883027604
+      },
+      "setup_speedup_traditional_over_meta_online": {
+        "mean": 0.6735482844674908,
+        "std": 0.04616141561433643
+      },
+      "traditional_velocity_krylov_iterations": {
+        "mean": 4183.666666666667,
+        "std": 97.4485619299855
+      },
+      "meta_velocity_krylov_iterations": {
+        "mean": 3940.6666666666665,
+        "std": 118.8060978607112
+      },
+      "krylov_ratio_meta_over_traditional": {
+        "mean": 0.9417697841542355,
+        "std": 0.006596291852421007
+      },
+      "traditional_krylov_per_velocity_solve": {
+        "mean": 52.9542576764799,
+        "std": 0.49662264456069083
+      },
+      "adapted_krylov_per_velocity_solve": {
+        "mean": 49.238394837668885,
+        "std": 1.2660605596749577
+      },
+      "wall_time_reduction_fraction": {
+        "mean": 0.04340153767266397,
+        "std": 0.010041057289577849
+      },
+      "traditional_wall_time": {
+        "mean": 2.274802843729655,
+        "std": 0.042710705879938055
+      },
+      "meta_wall_time": {
+        "mean": 2.176412026087443,
+        "std": 0.06036477283271436
+      },
+      "velocity_field_relative_error": {
+        "mean": 1.028641188315993e-09,
+        "std": 3.090360846556802e-10
+      },
+      "initial_temperature_difference": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    }
+  },
+  "per_seed": [
+    {
+      "seed": 0,
+      "adapt_steps": 3,
+      "initial_temperature_difference": 0.0,
+      "traditional_blocked": {
+        "wall_time": 2.27056622505188,
+        "linear_relative_residual": 1.172419953608618e-09,
+        "nusselt": 0.9894027882752044,
+        "rms_velocity": 78.62793906591973,
+        "block_stats": {
+          "velocity_solve_calls": 78,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 4163,
+          "velocity_krylov_iterations": 4163,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 60,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 4,
+          "adapted_hierarchy_setups": 0,
+          "traditional_hierarchy_setup_time": 0.0774533748626709,
+          "adapted_hierarchy_setup_time": 0.0,
+          "meta_adaptation_time": 0.0,
+          "traditional_velocity_krylov_iterations": 4163,
+          "adapted_velocity_krylov_iterations": 0,
+          "traditional_velocity_solve_calls": 78,
+          "adapted_velocity_solve_calls": 0,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 70,
+            "back_substitution": 4
+          }
+        }
+      },
+      "meta_blocked": {
+        "wall_time": 2.189919948577881,
+        "linear_relative_residual": 2.465876694366876e-09,
+        "nusselt": 0.9894027882752044,
+        "rms_velocity": 78.62793904658295,
+        "velocity_field_relative_error": 8.602398188998345e-10,
+        "block_stats": {
+          "velocity_solve_calls": 77,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 3904,
+          "velocity_krylov_iterations": 3904,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 59,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 1,
+          "adapted_hierarchy_setups": 3,
+          "traditional_hierarchy_setup_time": 0.019253015518188477,
+          "adapted_hierarchy_setup_time": 0.021279096603393555,
+          "meta_adaptation_time": 0.06784439086914062,
+          "traditional_velocity_krylov_iterations": 1076,
+          "adapted_velocity_krylov_iterations": 2828,
+          "traditional_velocity_solve_calls": 20,
+          "adapted_velocity_solve_calls": 57,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 69,
+            "back_substitution": 4
+          }
+        }
+      }
+    },
+    {
+      "seed": 1,
+      "adapt_steps": 3,
+      "initial_temperature_difference": 0.0,
+      "traditional_blocked": {
+        "wall_time": 2.2247402667999268,
+        "linear_relative_residual": 2.0931453092006953e-09,
+        "nusselt": 1.0054657371988818,
+        "rms_velocity": 77.5618065008892,
+        "block_stats": {
+          "velocity_solve_calls": 78,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 4076,
+          "velocity_krylov_iterations": 4076,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 60,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 4,
+          "adapted_hierarchy_setups": 0,
+          "traditional_hierarchy_setup_time": 0.07486224174499512,
+          "adapted_hierarchy_setup_time": 0.0,
+          "meta_adaptation_time": 0.0,
+          "traditional_velocity_krylov_iterations": 4076,
+          "adapted_velocity_krylov_iterations": 0,
+          "traditional_velocity_solve_calls": 78,
+          "adapted_velocity_solve_calls": 0,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 70,
+            "back_substitution": 4
+          }
+        }
+      },
+      "meta_blocked": {
+        "wall_time": 2.0966579914093018,
+        "linear_relative_residual": 2.7590656448081537e-09,
+        "nusselt": 1.0054657371988818,
+        "rms_velocity": 77.56180660264619,
+        "velocity_field_relative_error": 1.4621063666575377e-09,
+        "block_stats": {
+          "velocity_solve_calls": 78,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 3817,
+          "velocity_krylov_iterations": 3817,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 60,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 1,
+          "adapted_hierarchy_setups": 3,
+          "traditional_hierarchy_setup_time": 0.018520116806030273,
+          "adapted_hierarchy_setup_time": 0.022249937057495117,
+          "meta_adaptation_time": 0.06665205955505371,
+          "traditional_velocity_krylov_iterations": 1060,
+          "adapted_velocity_krylov_iterations": 2757,
+          "traditional_velocity_solve_calls": 20,
+          "adapted_velocity_solve_calls": 58,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 70,
+            "back_substitution": 4
+          }
+        }
+      }
+    },
+    {
+      "seed": 2,
+      "adapt_steps": 3,
+      "initial_temperature_difference": 0.0,
+      "traditional_blocked": {
+        "wall_time": 2.329102039337158,
+        "linear_relative_residual": 1.3173698398163397e-09,
+        "nusselt": 0.9920524417822608,
+        "rms_velocity": 80.42196584314868,
+        "block_stats": {
+          "velocity_solve_calls": 81,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 4312,
+          "velocity_krylov_iterations": 4312,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 62,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 4,
+          "adapted_hierarchy_setups": 0,
+          "traditional_hierarchy_setup_time": 0.07447981834411621,
+          "adapted_hierarchy_setup_time": 0.0,
+          "meta_adaptation_time": 0.0,
+          "traditional_velocity_krylov_iterations": 4312,
+          "adapted_velocity_krylov_iterations": 0,
+          "traditional_velocity_solve_calls": 81,
+          "adapted_velocity_solve_calls": 0,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 73,
+            "back_substitution": 4
+          }
+        }
+      },
+      "meta_blocked": {
+        "wall_time": 2.2426581382751465,
+        "linear_relative_residual": 5.318332517159381e-10,
+        "nusselt": 0.9920524417822608,
+        "rms_velocity": 80.42196582949803,
+        "velocity_field_relative_error": 7.635773793906067e-10,
+        "block_stats": {
+          "velocity_solve_calls": 80,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 4101,
+          "velocity_krylov_iterations": 4101,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 61,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "traditional_hierarchy_setups": 1,
+          "adapted_hierarchy_setups": 3,
+          "traditional_hierarchy_setup_time": 0.018876075744628906,
+          "adapted_hierarchy_setup_time": 0.036659955978393555,
+          "meta_adaptation_time": 0.06674695014953613,
+          "traditional_velocity_krylov_iterations": 1067,
+          "adapted_velocity_krylov_iterations": 3034,
+          "traditional_velocity_solve_calls": 20,
+          "adapted_velocity_solve_calls": 60,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 72,
+            "back_substitution": 4
+          }
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "n_seeds": 3,
+    "traditional_setup_time": {
+      "mean": 0.07559847831726074,
+      "std": 0.001320869110350163
+    },
+    "meta_hierarchy_build_time": {
+      "mean": 0.045612732569376625,
+      "std": 0.0070175044775048455
+    },
+    "meta_online_setup_time": {
+      "mean": 0.11269386609395345,
+      "std": 0.006791714114785981
+    },
+    "meta_adaptation_time": {
+      "mean": 0.06708113352457683,
+      "std": 0.0005410929598219064
+    },
+    "hierarchy_build_reduction_fraction": {
+      "mean": 0.3954790206287691,
+      "std": 0.10017258517570296
+    },
+    "online_setup_change_fraction": {
+      "mean": 0.4920019534396864,
+      "std": 0.10693916883027604
+    },
+    "setup_speedup_traditional_over_meta_online": {
+      "mean": 0.6735482844674908,
+      "std": 0.04616141561433643
+    },
+    "traditional_velocity_krylov_iterations": {
+      "mean": 4183.666666666667,
+      "std": 97.4485619299855
+    },
+    "meta_velocity_krylov_iterations": {
+      "mean": 3940.6666666666665,
+      "std": 118.8060978607112
+    },
+    "krylov_ratio_meta_over_traditional": {
+      "mean": 0.9417697841542355,
+      "std": 0.006596291852421007
+    },
+    "traditional_krylov_per_velocity_solve": {
+      "mean": 52.9542576764799,
+      "std": 0.49662264456069083
+    },
+    "adapted_krylov_per_velocity_solve": {
+      "mean": 49.238394837668885,
+      "std": 1.2660605596749577
+    },
+    "wall_time_reduction_fraction": {
+      "mean": 0.04340153767266397,
+      "std": 0.010041057289577849
+    },
+    "traditional_wall_time": {
+      "mean": 2.274802843729655,
+      "std": 0.042710705879938055
+    },
+    "meta_wall_time": {
+      "mean": 2.176412026087443,
+      "std": 0.06036477283271436
+    },
+    "velocity_field_relative_error": {
+      "mean": 1.028641188315993e-09,
+      "std": 3.090360846556802e-10
+    },
+    "initial_temperature_difference": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "traditional_full_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "meta_full_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    }
+  }
+}

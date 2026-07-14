@@ -22,7 +22,7 @@ try:
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
-    warnings.warn("matplotlib not available. Visualization features will be limited.")
+    warnings.warn("matplotlib not available. Visualization features will be limited.", ImportWarning)
 
 try:
     import plotly.graph_objects as go
@@ -30,7 +30,7 @@ try:
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
-    warnings.warn("plotly not available. Interactive visualization features will be limited.")
+    warnings.warn("plotly not available. Interactive visualization features will be limited.", ImportWarning)
 
 
 @dataclass
@@ -609,4 +609,3 @@ def load_config_from_template(template_name: str) -> SimulationConfig:
         raise FileNotFoundError(f"模板文件不存在: {template_path}")
     
     return SimulationConfig.from_yaml(str(template_path))
-

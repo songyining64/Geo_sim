@@ -1,0 +1,4 @@
+matrix_size,trad_setup,reuse_setup,zero_shot_setup,adapt_setup,trad_total,reuse_total,adapt_total,adapt_speedup,adapt_fallback
+225,0.0337,0.0056,0.0139,0.0138,0.1239,0.0212,0.0881,2.4363,0.0000
+400,0.1162,0.0174,0.0327,0.0329,0.3138,0.0461,0.1234,3.5349,0.0000
+625,0.2914,0.0448,0.0706,0.0705,0.6386,0.0898,0.1816,4.1312,0.0000

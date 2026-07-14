@@ -1,0 +1,3 @@
+method,wall_time,picard_iterations,nusselt,rms_velocity,valid_physics,velocity_fallbacks,velocity_solves,cg_iters
+reference_direct,0.2711 +- 5.940e-04,"[4, 4, 4]",0.9956 +- 0.0070,78.8706 +- 1.1802,yes,-,-,-
+meta_blocked,2.1775 +- 0.0100,-,0.9956 +- 0.0070,78.8706 +- 1.1802,1.0000,2.0000,2.0000,0.0000

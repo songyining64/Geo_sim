@@ -1,0 +1,458 @@
+{
+  "preset": "paper_medium",
+  "config": {
+    "seeds": [
+      2
+    ],
+    "nx": 32,
+    "ny": 32,
+    "picard_iterations": 4,
+    "rayleigh": 10000.0,
+    "viscosity_contrast": 100.0,
+    "meta_tasks": 60,
+    "meta_epochs": 20,
+    "adapt_steps": [
+      1
+    ],
+    "pressure_solver": "matrix_free_schur",
+    "schur_velocity_inverse": "lu"
+  },
+  "per_seed_by_adapt_steps": {
+    "1": [
+      {
+        "seed": 2,
+        "adapt_steps": 1,
+        "initial_temperature_difference": 0.0,
+        "traditional_blocked": {
+          "wall_time": 21.607692003250122,
+          "linear_relative_residual": 1.408296408478026e-09,
+          "nusselt": 0.998902388104073,
+          "rms_velocity": 1.3812244729880625,
+          "block_stats": {
+            "velocity_solve_calls": 8,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 1971,
+            "velocity_krylov_iterations": 1971,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 193,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "approximate_schur_solves": 0,
+            "schur_velocity_ilu_setups": 0,
+            "schur_velocity_ilu_setup_time": 0.0,
+            "schur_velocity_ilu_fallbacks": 0,
+            "schur_velocity_lu_setups": 4,
+            "schur_velocity_lu_setup_time": 0.03167319297790527,
+            "schur_velocity_lu_fallbacks": 0,
+            "traditional_hierarchy_setups": 4,
+            "adapted_hierarchy_setups": 0,
+            "traditional_hierarchy_setup_time": 6.097874164581299,
+            "adapted_hierarchy_setup_time": 0.0,
+            "meta_adaptation_time": 0.0,
+            "traditional_velocity_krylov_iterations": 1971,
+            "adapted_velocity_krylov_iterations": 0,
+            "traditional_velocity_solve_calls": 8,
+            "adapted_velocity_solve_calls": 0,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 0,
+              "back_substitution": 4
+            }
+          }
+        },
+        "meta_blocked": {
+          "wall_time": 15.14512586593628,
+          "linear_relative_residual": 4.84686150234115e-10,
+          "nusselt": 0.998902388104073,
+          "rms_velocity": 1.3812244670271676,
+          "velocity_field_relative_error": 4.102505769774695e-08,
+          "block_stats": {
+            "velocity_solve_calls": 8,
+            "velocity_direct_fallbacks": 0,
+            "velocity_cg_iterations": 1999,
+            "velocity_krylov_iterations": 1999,
+            "full_direct_fallbacks": 0,
+            "velocity_direct_fallback_time": 0.0,
+            "full_direct_fallback_time": 0.0,
+            "pressure_krylov_iterations": 193,
+            "pressure_solver_fallbacks": 0,
+            "pressure_preconditioner_fallbacks": 0,
+            "approximate_schur_solves": 0,
+            "schur_velocity_ilu_setups": 0,
+            "schur_velocity_ilu_setup_time": 0.0,
+            "schur_velocity_ilu_fallbacks": 0,
+            "schur_velocity_lu_setups": 4,
+            "schur_velocity_lu_setup_time": 0.023370981216430664,
+            "schur_velocity_lu_fallbacks": 0,
+            "traditional_hierarchy_setups": 1,
+            "adapted_hierarchy_setups": 3,
+            "traditional_hierarchy_setup_time": 1.4904828071594238,
+            "adapted_hierarchy_setup_time": 0.6690387725830078,
+            "meta_adaptation_time": 0.822399377822876,
+            "traditional_velocity_krylov_iterations": 613,
+            "adapted_velocity_krylov_iterations": 1386,
+            "traditional_velocity_solve_calls": 2,
+            "adapted_velocity_solve_calls": 6,
+            "velocity_solver_breakdown": {
+              "rhs": 4,
+              "schur_columns": 0,
+              "back_substitution": 4
+            }
+          }
+        }
+      }
+    ]
+  },
+  "aggregate_by_adapt_steps": {
+    "1": {
+      "n_seeds": 1,
+      "traditional_setup_time": {
+        "mean": 6.097874164581299,
+        "std": 0.0
+      },
+      "meta_hierarchy_build_time": {
+        "mean": 2.1595215797424316,
+        "std": 0.0
+      },
+      "meta_online_setup_time": {
+        "mean": 2.9819209575653076,
+        "std": 0.0
+      },
+      "meta_adaptation_time": {
+        "mean": 0.822399377822876,
+        "std": 0.0
+      },
+      "traditional_schur_velocity_setup_time": {
+        "mean": 0.03167319297790527,
+        "std": 0.0
+      },
+      "meta_schur_velocity_setup_time": {
+        "mean": 0.023370981216430664,
+        "std": 0.0
+      },
+      "traditional_total_online_preconditioner_setup": {
+        "mean": 6.129547357559204,
+        "std": 0.0
+      },
+      "meta_total_online_preconditioner_setup": {
+        "mean": 3.0052919387817383,
+        "std": 0.0
+      },
+      "total_online_preconditioner_setup_speedup": {
+        "mean": 2.0395846667874644,
+        "std": 0.0
+      },
+      "hierarchy_build_reduction_fraction": {
+        "mean": 0.6458566507840177,
+        "std": 0.0
+      },
+      "online_setup_change_fraction": {
+        "mean": -0.5109900799715738,
+        "std": 0.0
+      },
+      "setup_speedup_traditional_over_meta_online": {
+        "mean": 2.044948290500671,
+        "std": 0.0
+      },
+      "traditional_velocity_krylov_iterations": {
+        "mean": 1971.0,
+        "std": 0.0
+      },
+      "meta_velocity_krylov_iterations": {
+        "mean": 1999.0,
+        "std": 0.0
+      },
+      "krylov_ratio_meta_over_traditional": {
+        "mean": 1.0142059868087265,
+        "std": 0.0
+      },
+      "traditional_krylov_per_velocity_solve": {
+        "mean": 246.375,
+        "std": 0.0
+      },
+      "adapted_krylov_per_velocity_solve": {
+        "mean": 231.0,
+        "std": 0.0
+      },
+      "wall_time_reduction_fraction": {
+        "mean": 0.29908636870341243,
+        "std": 0.0
+      },
+      "traditional_wall_time": {
+        "mean": 21.607692003250122,
+        "std": 0.0
+      },
+      "meta_wall_time": {
+        "mean": 15.14512586593628,
+        "std": 0.0
+      },
+      "velocity_field_relative_error": {
+        "mean": 4.102505769774695e-08,
+        "std": 0.0
+      },
+      "initial_temperature_difference": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_full_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_velocity_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_velocity_direct_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_pressure_krylov_iterations": {
+        "mean": 193.0,
+        "std": 0.0
+      },
+      "meta_pressure_krylov_iterations": {
+        "mean": 193.0,
+        "std": 0.0
+      },
+      "traditional_pressure_solver_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_pressure_solver_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "traditional_schur_velocity_lu_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      },
+      "meta_schur_velocity_lu_fallbacks": {
+        "mean": 0.0,
+        "std": 0.0
+      }
+    }
+  },
+  "per_seed": [
+    {
+      "seed": 2,
+      "adapt_steps": 1,
+      "initial_temperature_difference": 0.0,
+      "traditional_blocked": {
+        "wall_time": 21.607692003250122,
+        "linear_relative_residual": 1.408296408478026e-09,
+        "nusselt": 0.998902388104073,
+        "rms_velocity": 1.3812244729880625,
+        "block_stats": {
+          "velocity_solve_calls": 8,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 1971,
+          "velocity_krylov_iterations": 1971,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 193,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "approximate_schur_solves": 0,
+          "schur_velocity_ilu_setups": 0,
+          "schur_velocity_ilu_setup_time": 0.0,
+          "schur_velocity_ilu_fallbacks": 0,
+          "schur_velocity_lu_setups": 4,
+          "schur_velocity_lu_setup_time": 0.03167319297790527,
+          "schur_velocity_lu_fallbacks": 0,
+          "traditional_hierarchy_setups": 4,
+          "adapted_hierarchy_setups": 0,
+          "traditional_hierarchy_setup_time": 6.097874164581299,
+          "adapted_hierarchy_setup_time": 0.0,
+          "meta_adaptation_time": 0.0,
+          "traditional_velocity_krylov_iterations": 1971,
+          "adapted_velocity_krylov_iterations": 0,
+          "traditional_velocity_solve_calls": 8,
+          "adapted_velocity_solve_calls": 0,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 0,
+            "back_substitution": 4
+          }
+        }
+      },
+      "meta_blocked": {
+        "wall_time": 15.14512586593628,
+        "linear_relative_residual": 4.84686150234115e-10,
+        "nusselt": 0.998902388104073,
+        "rms_velocity": 1.3812244670271676,
+        "velocity_field_relative_error": 4.102505769774695e-08,
+        "block_stats": {
+          "velocity_solve_calls": 8,
+          "velocity_direct_fallbacks": 0,
+          "velocity_cg_iterations": 1999,
+          "velocity_krylov_iterations": 1999,
+          "full_direct_fallbacks": 0,
+          "velocity_direct_fallback_time": 0.0,
+          "full_direct_fallback_time": 0.0,
+          "pressure_krylov_iterations": 193,
+          "pressure_solver_fallbacks": 0,
+          "pressure_preconditioner_fallbacks": 0,
+          "approximate_schur_solves": 0,
+          "schur_velocity_ilu_setups": 0,
+          "schur_velocity_ilu_setup_time": 0.0,
+          "schur_velocity_ilu_fallbacks": 0,
+          "schur_velocity_lu_setups": 4,
+          "schur_velocity_lu_setup_time": 0.023370981216430664,
+          "schur_velocity_lu_fallbacks": 0,
+          "traditional_hierarchy_setups": 1,
+          "adapted_hierarchy_setups": 3,
+          "traditional_hierarchy_setup_time": 1.4904828071594238,
+          "adapted_hierarchy_setup_time": 0.6690387725830078,
+          "meta_adaptation_time": 0.822399377822876,
+          "traditional_velocity_krylov_iterations": 613,
+          "adapted_velocity_krylov_iterations": 1386,
+          "traditional_velocity_solve_calls": 2,
+          "adapted_velocity_solve_calls": 6,
+          "velocity_solver_breakdown": {
+            "rhs": 4,
+            "schur_columns": 0,
+            "back_substitution": 4
+          }
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "n_seeds": 1,
+    "traditional_setup_time": {
+      "mean": 6.097874164581299,
+      "std": 0.0
+    },
+    "meta_hierarchy_build_time": {
+      "mean": 2.1595215797424316,
+      "std": 0.0
+    },
+    "meta_online_setup_time": {
+      "mean": 2.9819209575653076,
+      "std": 0.0
+    },
+    "meta_adaptation_time": {
+      "mean": 0.822399377822876,
+      "std": 0.0
+    },
+    "traditional_schur_velocity_setup_time": {
+      "mean": 0.03167319297790527,
+      "std": 0.0
+    },
+    "meta_schur_velocity_setup_time": {
+      "mean": 0.023370981216430664,
+      "std": 0.0
+    },
+    "traditional_total_online_preconditioner_setup": {
+      "mean": 6.129547357559204,
+      "std": 0.0
+    },
+    "meta_total_online_preconditioner_setup": {
+      "mean": 3.0052919387817383,
+      "std": 0.0
+    },
+    "total_online_preconditioner_setup_speedup": {
+      "mean": 2.0395846667874644,
+      "std": 0.0
+    },
+    "hierarchy_build_reduction_fraction": {
+      "mean": 0.6458566507840177,
+      "std": 0.0
+    },
+    "online_setup_change_fraction": {
+      "mean": -0.5109900799715738,
+      "std": 0.0
+    },
+    "setup_speedup_traditional_over_meta_online": {
+      "mean": 2.044948290500671,
+      "std": 0.0
+    },
+    "traditional_velocity_krylov_iterations": {
+      "mean": 1971.0,
+      "std": 0.0
+    },
+    "meta_velocity_krylov_iterations": {
+      "mean": 1999.0,
+      "std": 0.0
+    },
+    "krylov_ratio_meta_over_traditional": {
+      "mean": 1.0142059868087265,
+      "std": 0.0
+    },
+    "traditional_krylov_per_velocity_solve": {
+      "mean": 246.375,
+      "std": 0.0
+    },
+    "adapted_krylov_per_velocity_solve": {
+      "mean": 231.0,
+      "std": 0.0
+    },
+    "wall_time_reduction_fraction": {
+      "mean": 0.29908636870341243,
+      "std": 0.0
+    },
+    "traditional_wall_time": {
+      "mean": 21.607692003250122,
+      "std": 0.0
+    },
+    "meta_wall_time": {
+      "mean": 15.14512586593628,
+      "std": 0.0
+    },
+    "velocity_field_relative_error": {
+      "mean": 4.102505769774695e-08,
+      "std": 0.0
+    },
+    "initial_temperature_difference": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "traditional_full_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "meta_full_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "traditional_velocity_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "meta_velocity_direct_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "traditional_pressure_krylov_iterations": {
+      "mean": 193.0,
+      "std": 0.0
+    },
+    "meta_pressure_krylov_iterations": {
+      "mean": 193.0,
+      "std": 0.0
+    },
+    "traditional_pressure_solver_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "meta_pressure_solver_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "traditional_schur_velocity_lu_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "meta_schur_velocity_lu_fallbacks": {
+      "mean": 0.0,
+      "std": 0.0
+    }
+  }
+}

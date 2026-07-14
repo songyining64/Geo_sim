@@ -1,0 +1,63 @@
+{
+  "config": {
+    "nx": 16,
+    "ny": 16,
+    "seed": 0,
+    "matrix_size": 578,
+    "nnz": 4988
+  },
+  "scipy_direct": {
+    "available": true,
+    "setup_time": 0.0,
+    "solve_time": 0.0009548664093017578,
+    "relative_residual": 3.1053013577151992e-15
+  },
+  "pyamg": {
+    "available": true,
+    "best_method": "smoothed_aggregation",
+    "attempts": {
+      "ruge_stuben": {
+        "available": true,
+        "failed": true,
+        "reason": "array must not contain infs or NaNs"
+      },
+      "smoothed_aggregation": {
+        "available": true,
+        "setup_time": 0.002824068069458008,
+        "solve_time": 0.015816926956176758,
+        "relative_residual": 9.655717524586463e-09,
+        "n_levels": 3
+      }
+    }
+  },
+  "petsc": {
+    "available": true,
+    "best_method": "preonly_lu",
+    "attempts": {
+      "cg_gamg": {
+        "available": true,
+        "setup_time": 0.0010750293731689453,
+        "solve_time": 0.008293867111206055,
+        "relative_residual": 0.0006944550416706641
+      },
+      "gmres_gamg": {
+        "available": true,
+        "setup_time": 0.0007190704345703125,
+        "solve_time": 0.001046895980834961,
+        "relative_residual": 1.3215884325938118e-07
+      },
+      "gmres_ilu": {
+        "available": true,
+        "setup_time": 0.0001239776611328125,
+        "solve_time": 0.00010585784912109375,
+        "relative_residual": 1.3962130167498416e-08
+      },
+      "preonly_lu": {
+        "available": true,
+        "setup_time": 0.0005786418914794922,
+        "solve_time": 2.8133392333984375e-05,
+        "relative_residual": 3.8822113502029765e-15
+      }
+    }
+  }
+}

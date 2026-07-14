@@ -1,0 +1,6 @@
+method,setup_time,solve_time,total_time,iterations,fallback_rate
+traditional,0.1155,0.1979,0.3134,100.0000,0.0000
+reuse,0.0142,0.0233,0.0375,10.9000,0.0000
+zero_shot,0.0613,0.1374,0.1988,100.0000,0.0000
+adapted,0.0615,0.1393,0.2009,99.8000,0.0000
+neural_amg_setup_only,0.0218,-,-,-,-

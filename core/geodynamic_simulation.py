@@ -74,7 +74,7 @@ try:
     HAS_ADAPTIVITY = True
 except ImportError:
     HAS_ADAPTIVITY = False
-    warnings.warn("Adaptivity modules not available. Adaptive mesh refinement will be limited.")
+    warnings.warn("Adaptivity modules not available. Adaptive mesh refinement will be limited.", ImportWarning)
 
 try:
     from ..time_integration.time_integrators import TimeIntegrator
@@ -82,7 +82,7 @@ try:
     HAS_TIME_INTEGRATION = True
 except ImportError:
     HAS_TIME_INTEGRATION = False
-    warnings.warn("Time integration modules not available. Advanced time stepping will be limited.")
+    warnings.warn("Time integration modules not available. Advanced time stepping will be limited.", ImportWarning)
 
 try:
     from ..visualization.visualizer_2d import Visualizer2D
@@ -91,7 +91,7 @@ try:
     HAS_VISUALIZATION = True
 except ImportError:
     HAS_VISUALIZATION = False
-    warnings.warn("Visualization modules not available. Plotting features will be limited.")
+    warnings.warn("Visualization modules not available. Plotting features will be limited.", ImportWarning)
 
 try:
     from ..coupling.thermal_mechanical import ThermoMechanicalCoupling
@@ -100,7 +100,7 @@ try:
     HAS_COUPLING = True
 except ImportError:
     HAS_COUPLING = False
-    warnings.warn("Coupling modules not available. Multi-physics coupling will be limited.")
+    warnings.warn("Coupling modules not available. Multi-physics coupling will be limited.", ImportWarning)
 
 try:
     from ..ensemble.multi_fidelity import MultiFidelityTrainer
@@ -108,7 +108,7 @@ try:
     HAS_ADVANCED_FEATURES = True
 except ImportError:
     HAS_ADVANCED_FEATURES = False
-    warnings.warn("Advanced features not available. GPU acceleration and ensemble methods will be limited.")
+    warnings.warn("Advanced features not available. GPU acceleration and ensemble methods will be limited.", ImportWarning)
 
 
 # 可选依赖
@@ -118,14 +118,14 @@ try:
     HAS_VTK = True
 except ImportError:
     HAS_VTK = False
-    warnings.warn("VTK not available. VTK output features will be limited.")
+    warnings.warn("VTK not available. VTK output features will be limited.", ImportWarning)
 
 try:
     import h5py
     HAS_HDF5 = True
 except ImportError:
     HAS_HDF5 = False
-    warnings.warn("h5py not available. HDF5 output features will be limited.")
+    warnings.warn("h5py not available. HDF5 output features will be limited.", ImportWarning)
 
 try:
     import matplotlib.pyplot as plt

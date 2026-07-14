@@ -70,6 +70,11 @@
 - Stokes系统: -∇·[η(ε̇)(∇u + ∇uᵀ)] + ∇p = f
 - Picard迭代: η_k = η(ε̇(u_{k-1})) → A_k变化
 - 粘度对比度: 冷板块 η > 10²³, 热地幔 η ~ 10¹⁸
+- 离散采用连续线性四面体 `P1(u)-P1(p)-P1(T)`；等阶速度-压力由 PSPG 稳定，
+  `tau = beta h_e^2/(2 eta)`，3D 实验取 `beta=0.15`。
+- 完整对流算例在六个面施加 free-slip（法向速度为零），顶/底温度固定；压力零空间通过
+  底面一个节点 `p=0` 消除。manufactured benchmark 改为所有面的解析速度 Dirichlet，压力仍在
+  `(0,0,0)` 固定，因此两类算例的边界条件不可混同。
 
 ---
 
@@ -140,6 +145,18 @@ Input: 矩阵序列 A₀, A₁, ..., A_T
 - Baseline: 传统AMG (Ruge-Stüben), 神经AMG (零样本GNN)
 - GNN: 3层GCNConv, hidden=64, inner_lr=0.01, outer_lr=0.001
 - 硬件: 单块GPU (训练), CPU (部署验证)
+- 3D 可行性实验使用 `n=4` 结构化立方体四面体网格、3 次 Picard、种子 `0/1/2`。
+  标称节点黏度比 `1,10²,10⁴,10⁶` 对应实际单元平均黏度比约 `1,56,2.66×10³,1.06×10⁵`。
+  三种方法重放完全相同的预装配 `A_k x_k=b_k` 序列；轨迹生成不计入方法时间。报告 online setup、solve 时间、总时间、
+  Krylov 迭代、Python 峰值内存、CSR 存储及 velocity/pressure/full fallback。
+
+**5.1.1 Public 3D Manufactured Stokes Benchmark**
+- 区域 `Omega=[0,1]^3`，`eta=1`。
+- `u=[sin(pi x)cos(pi y)cos(pi z), -cos(pi x)sin(pi y)cos(pi z), 0]`，严格满足 `div u=0`。
+- `p=sin(pi x)sin(pi y)sin(pi z)`，体力由 `f=-div(2 eta epsilon(u))+grad p` 解析生成。
+- 网格级别 `n=2,3,4,6,8`，用单元积分报告 `L2(u)`、`H1` 半范误差和 `L2(p)` 及观察阶。
+- 可复现命令见 `experiments/PAPER_WORKFLOW.md`，原始 JSON 与 CSV 位于
+  `experiments/results_stokes_3d_convergence/`。
 
 **5.2 Experiment 1: Convergence Accuracy**
 - 指标: ||x_meta - x_trad|| / ||x_trad|| (与参考解的相对误差)
@@ -174,14 +191,29 @@ Input: 矩阵序列 A₀, A₁, ..., A_T
 
 - **为什么小矩阵上Meta-AMG不加速?** GNN推理+SGD的固定开销(~25ms) vs 传统AMG在小矩阵上的O(n²)优势(n<200时<5ms)。交叉点约在n=250。
 - **为什么MAML优于直接预测?** 直接预测学到的是"平均C/F模式"; MAML学到的是"如何利用上一步的信息适配"。两者在有序列信息的场景下有本质差异。
-- **局限:** 需要第一步传统AMG的C/F标签; 训练数据生成依赖传统AMG; 极值粘度(>10⁸)尚未验证。
-- **未来工作:** 与真实Stokes FEM接驳; 扩展到3D和并行AMG; 在线持续学习(不依赖传统AMG warm-start)。
+- **局限:** 需要第一步传统AMG的C/F标签；训练数据生成依赖传统AMG；压力使用单点规约而非
+  零均值约束；`P1-P1` 结果依赖 PSPG 参数；3D 仅在小网格上验证，尚无大规模性能证据。
+- **未来工作:** 扩展到高阶稳定元、零均值压力约束、并行AMG和生产规模3D；在线持续学习
+  （不依赖传统AMG warm-start）。
 
 ---
 
 ### 7. Conclusion
 
-本文提出Meta-AMG，将MAML应用于AMG预条件子的快速序列适配。在模拟非线性地质仿真矩阵序列上，Meta-AMG的setup比传统AMG快10-25x，适配准确率比零样本高15-20%，且随着矩阵规模增大加速比持续提高。该方法首次证明了元学习在数值线性代数领域的潜力，对大规模PDE仿真的计算加速具有重要意义。
+本文提出 Meta-AMG，将 MAML 应用于演化 Stokes 速度块的 AMG 层级适配。2D 实验用于评价
+主要性能结论；结构化和非结构化 3D 线性四面体实验用于验证方法可运行性和离散收敛性。
+当前 `n=4` 三种子结果中 direct 仍快两个数量级；Meta-AMG 相对项目内传统 AMG 减少约
+`36%–40%` replay 总时间，但本文不将该小网格结果外推为 3D 大规模加速。
+
+**5.1.2 3D Scaling Boundary**
+- 在单元黏度对比约 `2.7e3–6.4e3` 下测试 `n=4,6,8,10`；前三个规模使用三种子，
+  `n=10` 为单种子扩展点。
+- direct 总时间约为 `0.016, 0.130, 0.604, 2.33s`；Meta-AMG 为
+  `2.00, 10.23, 34.02, 74.40s`；项目内传统 AMG 为
+  `3.14, 17.43, 61.97, 183.62s`。
+- 所有规模均零 velocity/pressure/full fallback，最大相对 direct 解误差低于 `1.7e-8`。
+- 未观察到相对 direct 的交叉点。Meta 相对项目内传统 AMG 更快，但该基线的粗化实现具有
+  近二次 setup 瓶颈，不能替代 PyAMG/PETSc/HYPRE 强基线。
 
 ---
 
@@ -195,7 +227,7 @@ Input: 矩阵序列 A₀, A₁, ..., A_T
 | 实验数据 | ⚠️ 需要更大规模训练(500+任务,50+epoch) | 需要算力/时间 |
 | 表格和图片 | ❌ 需要matplotlib脚本 | 半天工作量 |
 | 写作 | ❌ 需要写LaTeX | 2-3天 |
-| 真实Stokes基准 | ❌ stokes_heat_element_matrix 是pass | 非必须* |
+| 真实Stokes基准 | ✅ 2D/3D FEM、Picard、blocked path | 3D仍限于小规模可行性 |
 
 *注: 多数计算数学/ML论文在标准问题(Poisson/弹性)上验证即足够。
   真实Stokes是"加分项"但非"必需项"。

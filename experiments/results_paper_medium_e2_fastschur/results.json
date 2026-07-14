@@ -1,0 +1,403 @@
+{
+  "config": {
+    "preset": "paper_medium",
+    "meta_epochs": 20,
+    "meta_tasks": 60,
+    "n_runs": 3,
+    "sequence_length": 8,
+    "matrix_sizes": [
+      225,
+      400,
+      625
+    ],
+    "contrasts": [
+      100.0,
+      10000.0,
+      1000000.0
+    ],
+    "stokes_nx": 8,
+    "stokes_ny": 8,
+    "stokes_picard_iterations": 4,
+    "stokes_rayleigh": 10000.0,
+    "stokes_viscosity_contrast": 100.0
+  },
+  "experiment_2": [
+    {
+      "matrix_size": 225,
+      "traditional": {
+        "setup_time_mean": 0.03409552574157715,
+        "solve_time_mean": 0.090710053841273,
+        "total_time_mean": 0.1248177985350291,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.005742480357487996,
+        "solve_time_mean": 0.01565229892730713,
+        "total_time_mean": 0.021418859561284382,
+        "iterations_mean": 13.375,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 0.016027520100275677,
+        "solve_time_mean": 0.07702369491259257,
+        "total_time_mean": 0.09308215975761414,
+        "iterations_mean": 96.75,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 0.016054977973302204,
+        "solve_time_mean": 0.08172602454821269,
+        "total_time_mean": 0.09781781832377116,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 2.1236731559691044,
+      "reuse_speedup_vs_traditional": 5.937421396159895
+    },
+    {
+      "matrix_size": 400,
+      "traditional": {
+        "setup_time_mean": 0.11266231536865234,
+        "solve_time_mean": 0.19068866968154907,
+        "total_time_mean": 0.3033632735411326,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.017053574323654175,
+        "solve_time_mean": 0.02893775701522827,
+        "total_time_mean": 0.04601842164993286,
+        "iterations_mean": 13.375,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 0.03690213958422343,
+        "solve_time_mean": 0.09645572304725647,
+        "total_time_mean": 0.13339563210805258,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 0.03700152039527893,
+        "solve_time_mean": 0.09645668665568034,
+        "total_time_mean": 0.13350383440653482,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 3.0448023260964994,
+      "reuse_speedup_vs_traditional": 6.606375486479921
+    },
+    {
+      "matrix_size": 625,
+      "traditional": {
+        "setup_time_mean": 0.2749057114124298,
+        "solve_time_mean": 0.33248618245124817,
+        "total_time_mean": 0.6074044009049734,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "reuse": {
+        "setup_time_mean": 0.03877571225166321,
+        "solve_time_mean": 0.042806913455327354,
+        "total_time_mean": 0.08161553740501404,
+        "iterations_mean": 13.375,
+        "fallback_rate": 0.0
+      },
+      "zero_shot": {
+        "setup_time_mean": 0.07474612196286519,
+        "solve_time_mean": 0.11976887782414754,
+        "total_time_mean": 0.19456148147583008,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapted": {
+        "setup_time_mean": 0.07440660397211711,
+        "solve_time_mean": 0.11975587407747905,
+        "total_time_mean": 0.19421024123827615,
+        "iterations_mean": 100.0,
+        "fallback_rate": 0.0
+      },
+      "adapt_speedup_vs_traditional": 3.694641291725222,
+      "reuse_speedup_vs_traditional": 7.089636668134658
+    }
+  ],
+  "experiment_2_stokes_picard_replay": {
+    "traditional": {
+      "method": "traditional",
+      "steps": [
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.020954132080078125,
+          "solve_time": 0.08038806915283203,
+          "total_time": 0.10135698318481445,
+          "iterations": 100,
+          "residual_norm": 3.168418576495648e+87,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.021645069122314453,
+          "solve_time": 0.08066582679748535,
+          "total_time": 0.10232400894165039,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.020013093948364258,
+          "solve_time": 0.07380795478820801,
+          "total_time": 0.09383392333984375,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.02098393440246582,
+          "solve_time": 0.0771031379699707,
+          "total_time": 0.09809708595275879,
+          "iterations": 100,
+          "residual_norm": 5.21393604903972e+88,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        }
+      ],
+      "setup_time_mean": 0.020899057388305664,
+      "solve_time_mean": 0.07799124717712402,
+      "total_time_mean": 0.09890300035476685,
+      "iterations_mean": 100.0,
+      "residual_norm_mean": Infinity,
+      "fallback_rate": 0.0,
+      "accepted_rate": 1.0
+    },
+    "reuse": {
+      "method": "reuse",
+      "steps": [
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.020954132080078125,
+          "solve_time": 0.08038806915283203,
+          "total_time": 0.10135698318481445,
+          "iterations": 100,
+          "residual_norm": 3.168418576495648e+87,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.022108078002929688,
+          "solve_time": 0.07601308822631836,
+          "total_time": 0.09813427925109863,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 0
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.019491195678710938,
+          "solve_time": 0.07253408432006836,
+          "total_time": 0.09203672409057617,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 0
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.020272016525268555,
+          "solve_time": 0.07179093360900879,
+          "total_time": 0.09207391738891602,
+          "iterations": 100,
+          "residual_norm": 5.21393604903972e+88,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 0
+        }
+      ],
+      "setup_time_mean": 0.020706355571746826,
+      "solve_time_mean": 0.07518154382705688,
+      "total_time_mean": 0.09590047597885132,
+      "iterations_mean": 100.0,
+      "residual_norm_mean": Infinity,
+      "fallback_rate": 0.75,
+      "accepted_rate": 0.25
+    },
+    "zero_shot": {
+      "method": "zero_shot",
+      "steps": [
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.020954132080078125,
+          "solve_time": 0.08038806915283203,
+          "total_time": 0.10135698318481445,
+          "iterations": 100,
+          "residual_norm": 3.168418576495648e+87,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.021893978118896484,
+          "solve_time": 0.0754079818725586,
+          "total_time": 0.09731483459472656,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 41
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.021252155303955078,
+          "solve_time": 0.0770108699798584,
+          "total_time": 0.09827518463134766,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 40
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.02086806297302246,
+          "solve_time": 0.07141399383544922,
+          "total_time": 0.09229636192321777,
+          "iterations": 100,
+          "residual_norm": 5.21393604903972e+88,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 44
+        }
+      ],
+      "setup_time_mean": 0.021242082118988037,
+      "solve_time_mean": 0.07605522871017456,
+      "total_time_mean": 0.09731084108352661,
+      "iterations_mean": 100.0,
+      "residual_norm_mean": Infinity,
+      "fallback_rate": 0.75,
+      "accepted_rate": 0.25
+    },
+    "adapted": {
+      "method": "adapted",
+      "steps": [
+        {
+          "accepted": true,
+          "fallback": false,
+          "setup_time": 0.020954132080078125,
+          "solve_time": 0.08038806915283203,
+          "total_time": 0.10135698318481445,
+          "iterations": 100,
+          "residual_norm": 3.168418576495648e+87,
+          "two_grid_factor": null,
+          "operator_complexity": null,
+          "repaired_points": 0
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.021267175674438477,
+          "solve_time": 0.0740060806274414,
+          "total_time": 0.09528899192810059,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 43
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.02005624771118164,
+          "solve_time": 0.07603573799133301,
+          "total_time": 0.09610319137573242,
+          "iterations": 100,
+          "residual_norm": Infinity,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 43
+        },
+        {
+          "accepted": false,
+          "fallback": true,
+          "setup_time": 0.020416975021362305,
+          "solve_time": 0.07439589500427246,
+          "total_time": 0.09482502937316895,
+          "iterations": 100,
+          "residual_norm": 5.21393604903972e+88,
+          "two_grid_factor": Infinity,
+          "operator_complexity": Infinity,
+          "repaired_points": 45
+        }
+      ],
+      "setup_time_mean": 0.020673632621765137,
+      "solve_time_mean": 0.07620644569396973,
+      "total_time_mean": 0.0968935489654541,
+      "iterations_mean": 100.0,
+      "residual_norm_mean": Infinity,
+      "fallback_rate": 0.75,
+      "accepted_rate": 0.25
+    }
+  },
+  "experiment_2_stokes_picard_full": {
+    "reference_direct": {
+      "wall_time": 0.3111100196838379,
+      "picard_iterations": 4,
+      "nusselt": 0.9894027882752044,
+      "rms_velocity": 78.62793919460948
+    },
+    "meta_blocked": {
+      "wall_time": 2.241873264312744,
+      "picard_iterations": 4,
+      "nusselt": 1.0098272867894549,
+      "rms_velocity": 83.6186659897282,
+      "valid_physics": true,
+      "block_stats": {
+        "velocity_solve_calls": 2,
+        "velocity_direct_fallbacks": 2,
+        "velocity_cg_iterations": 0,
+        "full_direct_fallbacks": 1,
+        "velocity_solver_breakdown": {
+          "rhs": 1,
+          "schur_columns": 0,
+          "back_substitution": 1
+        }
+      },
+      "solver_stats": {
+        "n_traditional": 1,
+        "n_adapted": 3,
+        "n_repaired_points": 0,
+        "n_validation_fallbacks": 0,
+        "total_traditional_time": 0.0,
+        "total_adapt_time": 0.0690300464630127,
+        "avg_traditional_time": 0.0,
+        "avg_adapt_time": 0.0230100154876709
+      }
+    }
+  }
+}
