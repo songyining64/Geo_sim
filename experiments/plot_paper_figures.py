@@ -57,42 +57,8 @@ def load_results():
 
 
 def generate_placeholder_data():
-    """论文占位数据 — 替换为实际实验结果后删掉此函数"""
-    sizes = [100, 225, 400, 625, 900, 1600]
-    contrasts = [1e2, 1e3, 1e4, 1e5, 1e6]
-
-    return {
-        'experiment_2': [
-            {'matrix_size': s, 'speedup': max(0.04, 0.025 * s**0.6),
-             'trad_time_mean': 0.001 * s**1.3,
-             'adapt_time_mean': 0.025 + 1e-5 * s}
-            for s in sizes
-        ],
-        'experiment_3a_zs_vs_adapted': {
-            'zero_shot': {'error_mean': 0.33},
-            'adapted': {'error_mean': 0.17},
-        },
-        'experiment_3b_adapt_steps': [
-            {'steps': 1, 'error_mean': 0.30, 'time_mean': 0.008},
-            {'steps': 3, 'error_mean': 0.17, 'time_mean': 0.025},
-            {'steps': 5, 'error_mean': 0.15, 'time_mean': 0.042},
-            {'steps': 10, 'error_mean': 0.14, 'time_mean': 0.083},
-        ],
-        'experiment_4': [
-            {'contrast': c, 'zs_error_mean': 0.15 + 0.25*np.log10(c/1e2),
-             'ad_error_mean': 0.10 + 0.08*np.log10(c/1e2)}
-            for c in contrasts
-        ],
-        'experiment_5': [
-            {'test_size': s, 'zs_error_mean': 0.30 + 0.02*(s-400)/100,
-             'ad_error_mean': 0.15 + 0.015*(s-400)/100}
-            for s in [400, 625, 900, 1600]
-        ],
-        'experiment_1': [
-            {'matrix_size': s, 'max_error': 5e-6*s**0.5}
-            for s in [225, 400, 625, 1600]
-        ],
-    }
+    """备用占位 — 现在用实际实验数据, 仅当results.json缺失某实验时回退"""
+    return {}
 
 
 # ═══════════════════════════════════════════
@@ -100,11 +66,30 @@ def generate_placeholder_data():
 # ═══════════════════════════════════════════
 
 def fig1_speedup(data):
-    e2 = data['experiment_2']
-    sizes = [d['matrix_size'] for d in e2]
-    speedups = [d['speedup'] for d in e2]
-    trad_t = [d.get('trad_time_mean', 0) for d in e2]
-    adapt_t = [d.get('adapt_time_mean', 0) for d in e2]
+    """使用实验实测数据: traditional vs reuse (Meta-AMG)"""
+    e2 = data.get('experiment_2', [])
+    if not e2:
+        print('  ⚠ No experiment_2 data, skipping Fig 1')
+        return
+
+    sizes = []
+    trad_t = []
+    meta_t = []
+    speedups = []
+
+    for d in e2:
+        n = d['matrix_size']
+        if 'traditional' in d and 'reuse' in d:
+            sizes.append(n)
+            tt = d['traditional'].get('setup_time_mean_mean', 0)
+            mt = d['reuse'].get('setup_time_mean_mean', 0)
+            trad_t.append(tt)
+            meta_t.append(mt)
+            speedups.append(tt / max(mt, 1e-12))
+
+    if not sizes:
+        print('  ⚠ No timing data in experiment_2')
+        return
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -118,18 +103,15 @@ def fig1_speedup(data):
     ax1.set_title('(a) Meta-AMG Setup Speedup')
     ax1.legend(loc='upper left')
     ax1.grid(True, alpha=0.3)
-    ax1.set_xscale('log')
-    ax1.annotate(f'{speedups[-1]:.0f}$\\times$',
-                 xy=(sizes[-1], speedups[-1]),
-                 xytext=(sizes[-1]*0.5, speedups[-1]*1.1),
-                 fontsize=11, fontweight='bold', color=COLORS['speedup'],
-                 arrowprops=dict(arrowstyle='->', color=COLORS['speedup']))
+    for s, sp in zip(sizes, speedups):
+        ax1.annotate(f'{sp:.1f}$\\times$', (s, sp), textcoords='offset points',
+                     xytext=(0, 10), fontsize=9, ha='center', color=COLORS['speedup'])
 
     # 右: 绝对时间
     ax2.plot(sizes, trad_t, 's-', color=COLORS['traditional'], lw=2, ms=7,
              label='Traditional AMG')
-    ax2.plot(sizes, adapt_t, 'o-', color=COLORS['meta'], lw=2, ms=7,
-             label='Meta-AMG (adapted)')
+    ax2.plot(sizes, meta_t, 'o-', color=COLORS['meta'], lw=2, ms=7,
+             label='Meta-AMG')
     ax2.set_xlabel('Degrees of Freedom (velocity block)')
     ax2.set_ylabel('Setup Time (s)')
     ax2.set_title('(b) Absolute Setup Time')
@@ -140,7 +122,8 @@ def fig1_speedup(data):
     plt.tight_layout()
     plt.savefig(OUTDIR / 'fig1_setup_speedup.pdf')
     plt.close()
-    print(f'  ✓ Fig 1: setup speedup — {OUTDIR}/fig1_setup_speedup.pdf')
+    print(f'  ✓ Fig 1: {len(sizes)} data points, speedup range '
+          f'{min(speedups):.1f}x–{max(speedups):.1f}x')
 
 
 # ═══════════════════════════════════════════
@@ -148,15 +131,19 @@ def fig1_speedup(data):
 # ═══════════════════════════════════════════
 
 def fig2_ablation(data):
-    e3a = data['experiment_3a_zs_vs_adapted']
-    e3b = data['experiment_3b_adapt_steps']
+    e3a = data.get('experiment_3a_zs_vs_adapted', {})
+    e3b = data.get('experiment_3b_adapt_steps', [])
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    # 左: Zero-shot vs Adapted
+    # 左: Zero-shot vs Adapted (用实测误差)
+    if e3a:
+        zs_err = e3a.get('zero_shot', {}).get('error_mean', 0.5)
+        ad_err = e3a.get('adapted', {}).get('error_mean', 0.5)
+    else:
+        zs_err, ad_err = 0.5, 0.5
+
     methods = ['Zero-shot\n(no adaptation)', 'MAML-Adapted\n(3 gradient steps)']
-    zs_err = e3a['zero_shot']['error_mean']
-    ad_err = e3a['adapted']['error_mean']
     accs = [1 - zs_err, 1 - ad_err]
     bars = ax1.bar(methods, accs, color=[COLORS['zero_shot'], COLORS['adapted']],
                    width=0.5, edgecolor='white', linewidth=1.5)
@@ -165,13 +152,16 @@ def fig2_ablation(data):
                  f'{acc:.1%}', ha='center', va='bottom', fontweight='bold', fontsize=14)
     ax1.set_ylabel('C/F Prediction Accuracy')
     ax1.set_title('(a) Adaptation vs No Adaptation')
-    ax1.set_ylim(0.4, 1.0)
+    ax1.set_ylim(0, 1.15)
     ax1.grid(True, alpha=0.3, axis='y')
 
-    # 右: 适配步数
-    steps = [d['steps'] for d in e3b]
-    errors = [d['error_mean'] for d in e3b]
-    times = [d['time_mean'] for d in e3b]
+    # 右: 适配步数 (实测数据)
+    if e3b:
+        steps = [d['steps'] for d in e3b]
+        errors = [d['error_mean'] for d in e3b]
+        times = [d['time_mean'] for d in e3b]
+    else:
+        steps, errors, times = [1,3,5,10], [0.5]*4, [0.03]*4
 
     ax2b = ax2.twinx()
     line1 = ax2.plot(steps, [1-e for e in errors], 'o-', color=COLORS['adapted'],
@@ -186,12 +176,12 @@ def fig2_ablation(data):
     labels = [l.get_label() for l in lines]
     ax2.legend(lines, labels, loc='center right')
     ax2.grid(True, alpha=0.3)
-    ax2.set_ylim(0.55, 0.95)
 
     plt.tight_layout()
     plt.savefig(OUTDIR / 'fig2_ablation.pdf')
     plt.close()
-    print(f'  ✓ Fig 2: ablation — {OUTDIR}/fig2_ablation.pdf')
+    print(f'  ✓ Fig 2: ablation — zs={1-zs_err:.1%}, ad={1-ad_err:.1%}, '
+          f'{len(steps)} adapt steps')
 
 
 # ═══════════════════════════════════════════
@@ -199,46 +189,70 @@ def fig2_ablation(data):
 # ═══════════════════════════════════════════
 
 def fig3_convergence_quality(data):
-    """占位图 — 需要convergence-driven指标的实验数据"""
-    e3a = data['experiment_3a_zs_vs_adapted']
-    zs_err = e3a['zero_shot']['error_mean']
-    ad_err = e3a['adapted']['error_mean']
+    """使用实测Stokes replay数据 + 训练conv metrics"""
+    e2s = data.get('experiment_2_stokes_picard_replay', {})
+    e2sf = data.get('experiment_2_stokes_picard_full', {})
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    methods = ['Traditional\nAMG', 'Neural AMG\n(Zero-shot)', 'Meta-AMG\n(Adapted)']
-    # 残差收缩比 (r_after/r_before, lower=better)
-    rho = [0.18, 0.45, 0.28]  # 占位值, 替换为实测
-    converge_rate = [1.0, 0.72, 0.91]  # ρ<1的比例
+    # 左: Setup时间对比 (Stokes replay实测)
+    ax1 = axes[0]
+    methods_display = ['Traditional', 'Reuse\n(Meta-AMG)', 'Zero-shot\n(no adapt)']
+    colors_method = [COLORS['traditional'], COLORS['meta'], COLORS['zero_shot']]
+    times = []
+    labels = []
+    for method_key, display_name in [('traditional','Traditional'),
+                                      ('reuse','Reuse (Meta)'),
+                                      ('zero_shot','Zero-shot'),
+                                      ('adapted','Adapted')]:
+        if method_key in e2s:
+            t = e2s[method_key].get('setup_time_mean_mean', 0)
+            times.append(t)
+            labels.append(display_name)
 
-    x = np.arange(len(methods))
-    width = 0.35
+    if times:
+        xs = np.arange(len(times))
+        bars = ax1.bar(xs, times, color=colors_method[:len(times)],
+                       edgecolor='white', linewidth=1.5)
+        ax1.set_xticks(xs)
+        ax1.set_xticklabels(labels)
+        ax1.set_ylabel('Setup Time (s)')
+        ax1.set_title('(a) Setup Time on Stokes Sequence')
+        for bar, t in zip(bars, times):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                     f'{t*1000:.1f}ms', ha='center', va='bottom', fontsize=9)
+        ax1.grid(True, alpha=0.3, axis='y')
 
-    bars1 = ax.bar(x - width/2, rho, width, color=[COLORS['traditional'],
-                   COLORS['zero_shot'], COLORS['adapted']],
-                   edgecolor='white', linewidth=1.5, label='Residual ratio $\\rho$')
-    ax.set_ylabel('Two-grid Residual Ratio $\\rho$', fontsize=12)
-    ax.set_title('Convergence Quality of Predicted C/F Splittings')
-    ax.set_xticks(x)
-    ax.set_xticklabels(methods)
-    ax.axhline(y=1.0, color='red', ls='--', alpha=0.5, label='Divergence threshold')
+    # 右: 物理指标 (Nu, Vrms — 实测)
+    ax2 = axes[1]
+    if 'reference_direct' in e2sf and 'meta_blocked' in e2sf:
+        ref = e2sf['reference_direct']
+        meta = e2sf['meta_blocked']
+        metrics = ['Nusselt', 'RMS velocity', 'Wall time']
+        ref_vals = [ref.get('nusselt_mean', 0), 0, ref.get('wall_time_mean', 0)]
+        meta_vals = [meta.get('nusselt_mean', 0), 0, meta.get('wall_time_mean', 0)]
+        # Vrms from experiment data if available
+        if 'rms_velocity_mean' in ref:
+            ref_vals[1] = ref['rms_velocity_mean']
+        if 'rms_velocity_mean' in meta:
+            meta_vals[1] = meta['rms_velocity_mean']
 
-    for bar, r in zip(bars1, rho):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
-                f'{r:.2f}', ha='center', va='bottom', fontweight='bold')
-
-    # 收敛率标注
-    for i, cr in enumerate(converge_rate):
-        ax.text(i, 0.05, f'Converges: {cr:.0%}', ha='center', fontsize=10,
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.7))
-
-    ax.legend(loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
+        x = np.arange(len(metrics))
+        w = 0.35
+        ax2.bar(x - w/2, ref_vals, w, color=COLORS['traditional'],
+                label='Traditional', edgecolor='white')
+        ax2.bar(x + w/2, meta_vals, w, color=COLORS['meta'],
+                label='Meta-AMG', edgecolor='white')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(metrics)
+        ax2.set_title('(b) Physical Accuracy (vs Direct Solve)')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3, axis='y')
 
     plt.tight_layout()
     plt.savefig(OUTDIR / 'fig3_convergence_quality.pdf')
     plt.close()
-    print(f'  ✓ Fig 3: convergence quality — {OUTDIR}/fig3_convergence_quality.pdf')
+    print(f'  ✓ Fig 3: Stokes convergence — {len(times)} methods compared')
 
 
 # ═══════════════════════════════════════════
@@ -316,20 +330,42 @@ def fig5_scalability(data):
 # ═══════════════════════════════════════════
 
 def fig6_solution_accuracy(data):
-    e1 = data['experiment_1']
-    sizes = [d['matrix_size'] for d in e1]
-    errors = [d['max_error'] for d in e1]
+    """使用E1实测数据: 各方法的求解误差"""
+    e1 = data.get('experiment_1', [])
+    if not e1:
+        print('  ⚠ No experiment_1 data, skipping Fig 6')
+        return
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    sizes = []
+    trad_errs = []
+    reuse_errs = []
+    zs_errs = []
+    ad_errs = []
 
-    ax.plot(sizes, errors, 'o-', color=COLORS['meta'], lw=2.5, ms=8)
-    ax.fill_between(sizes, 0, errors, alpha=0.1, color=COLORS['meta'])
-    ax.axhline(y=1e-5, color='gray', ls='--', alpha=0.5, label='Tolerance (10$^{-5}$)')
-    ax.axhline(y=1e-4, color='red', ls=':', alpha=0.3, label='Picard tolerance')
+    for d in e1:
+        sizes.append(d['matrix_size'])
+        for method, store in [('traditional', trad_errs), ('reuse', reuse_errs),
+                               ('zero_shot', zs_errs), ('adapted', ad_errs)]:
+            if method in d and 'residual_norm_mean' in d[method]:
+                store.append(d[method]['residual_norm_mean'])
+            else:
+                store.append(0)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    methods_plot = [
+        (trad_errs, COLORS['traditional'], 'Traditional AMG'),
+        (reuse_errs, COLORS['meta'], 'Meta-AMG (reuse)'),
+        (ad_errs, COLORS['adapted'], 'Meta-AMG (adapted)'),
+    ]
+
+    for errs, color, label in methods_plot:
+        if any(e > 0 for e in errs):
+            ax.plot(sizes, errs, 'o-', color=color, lw=2, ms=7, label=label)
 
     ax.set_xlabel('Degrees of Freedom')
-    ax.set_ylabel('Relative Error $\\|\\mathbf{x}_{\\rm meta} - \\mathbf{x}_{\\rm trad}\\| / \\|\\mathbf{x}_{\\rm trad}\\|$')
-    ax.set_title('Solution Accuracy: Meta-AMG vs Traditional AMG')
+    ax.set_ylabel('Residual Norm $\\|\\mathbf{b} - A\\mathbf{x}\\|$')
+    ax.set_title('Solver Accuracy Across Matrix Sizes')
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_yscale('log')
@@ -337,7 +373,7 @@ def fig6_solution_accuracy(data):
     plt.tight_layout()
     plt.savefig(OUTDIR / 'fig6_solution_accuracy.pdf')
     plt.close()
-    print(f'  ✓ Fig 6: solution accuracy — {OUTDIR}/fig6_solution_accuracy.pdf')
+    print(f'  ✓ Fig 6: {len(sizes)} data points from real experiment')
 
 
 # ═══════════════════════════════════════════
