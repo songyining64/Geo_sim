@@ -75,12 +75,16 @@ class StokesConfig:
     velocity_solver_max_iterations: int = 500
     full_blocked_acceptance_rtol: float = 1e-4
     pressure_solver: str = 'matrix_free_schur'
+    pressure_solver_rtol: float = 1e-6
     schur_velocity_inverse: str = 'krylov'
     pressure_preconditioner: str = 'diag_schur'
     velocity_jacobi_relaxation: float = 0.5
     velocity_smoothing_steps: int = 1
-    velocity_amg_backend: str = 'internal'  # 'internal' | 'pyamg'
+    velocity_amg_backend: str = 'internal'  # internal | pyamg | petsc_gamg | hypre_boomeramg
     reuse_velocity_hierarchy: bool = False
+    velocity_hierarchy_policy: str = 'fresh'  # fresh | reuse | periodic | change_aware
+    velocity_rebuild_interval: int = 3
+    velocity_matrix_change_threshold: float = 0.10
     schur_velocity_vcycles: int = 3
 
     output_dir: str = './stokes_output'
@@ -104,6 +108,38 @@ class StokesMesh:
             self._build_3d_mesh()
 
         self._identify_boundaries()
+
+    @classmethod
+    def from_unstructured_triangles(cls, nodes: np.ndarray,
+                                    elements: np.ndarray):
+        """Build a 2D Stokes mesh from positively oriented triangles."""
+        mesh = cls.__new__(cls)
+        mesh.nodes = np.asarray(nodes, dtype=float)
+        mesh.elements = []
+        for element in np.asarray(elements, dtype=int):
+            triangle = element.tolist()
+            coords = mesh.nodes[triangle]
+            determinant = np.linalg.det((coords[1:] - coords[0]).T)
+            if determinant < 0.0:
+                triangle[1], triangle[2] = triangle[2], triangle[1]
+                determinant = -determinant
+            if determinant <= 1e-12:
+                raise ValueError("unstructured mesh contains a degenerate triangle")
+            mesh.elements.append(triangle)
+        extents = np.ptp(mesh.nodes, axis=0)
+        minima = np.min(mesh.nodes, axis=0)
+        if not np.allclose(minima, 0.0, atol=1e-10):
+            raise ValueError("unstructured Stokes mesh must start at the origin")
+        mesh.nx = mesh.ny = mesh.nz = None
+        mesh.lx, mesh.ly = extents.tolist()
+        mesh.lz = 1.0
+        mesh.dim = 2
+        mesh.n_dofs_per_node = 4
+        mesh.n_nodes = len(mesh.nodes)
+        mesh.n_elements = len(mesh.elements)
+        mesh.n_dofs = mesh.n_nodes * mesh.n_dofs_per_node
+        mesh._identify_boundaries()
+        return mesh
 
     @classmethod
     def from_unstructured_tetrahedra(cls, nodes: np.ndarray,
@@ -552,6 +588,111 @@ class _PyAMGVelocitySolver:
             maxiter=1, cycle='V', accel=None)
 
 
+class _PETScVelocitySolver:
+    """PETSc PC adapter used as one AMG application inside SciPy GMRES."""
+
+    def __init__(self, backend: str):
+        self.backend = backend
+        self.matrix = None
+        self.pc = None
+        self.is_setup = False
+        self.performance_stats = {}
+        self._hierarchy_source = 'traditional'
+
+    @staticmethod
+    def _petsc():
+        from petsc4py import PETSc
+        return PETSc
+
+    @classmethod
+    def probe(cls, backend: str):
+        """Exercise PC setup so optional packages cannot fail silently later."""
+        test = sp.diags([-np.ones(4), 4.0 * np.ones(5), -np.ones(4)],
+                        [-1, 0, 1], format='csr')
+        solver = cls(backend)
+        try:
+            solver.setup(test)
+            solver.v_cycle(0, np.ones(5), np.zeros(5))
+        finally:
+            solver.close()
+
+    def _build(self, matrix):
+        PETSc = self._petsc()
+        matrix = matrix.tocsr().astype(np.float64)
+        matrix.sum_duplicates()
+        matrix.sort_indices()
+        self.matrix = PETSc.Mat().createAIJ(
+            size=matrix.shape,
+            csr=(matrix.indptr, matrix.indices, matrix.data),
+            comm=PETSc.COMM_SELF,
+        )
+        self.matrix.assemble()
+        self.pc = PETSc.PC().create(comm=PETSc.COMM_SELF)
+        self.pc.setOperators(self.matrix)
+        if self.backend == 'petsc_gamg':
+            self.pc.setType('gamg')
+        elif self.backend == 'hypre_boomeramg':
+            self.pc.setType('hypre')
+            self.pc.setHYPREType('boomeramg')
+        else:
+            raise ValueError(f"unknown PETSc AMG backend: {self.backend}")
+        self.pc.setUp()
+
+    def setup(self, matrix, rhs=None):
+        start = time.perf_counter()
+        self.close()
+        self._build(matrix)
+        self.is_setup = True
+        self.performance_stats['setup_time'] = time.perf_counter() - start
+
+    def update_matrix(self, matrix):
+        # PETSc does not expose portable interpolation-only reuse for GAMG/HYPRE.
+        # Rebuilding the PC is explicit and is charged as update/setup time.
+        self.setup(matrix)
+
+    def v_cycle(self, level, rhs, initial):
+        PETSc = self._petsc()
+        rhs_array = np.ascontiguousarray(rhs, dtype=np.float64)
+        output = np.ascontiguousarray(initial, dtype=np.float64).copy()
+        petsc_rhs = PETSc.Vec().createWithArray(rhs_array, comm=PETSc.COMM_SELF)
+        petsc_output = PETSc.Vec().createWithArray(output, comm=PETSc.COMM_SELF)
+        try:
+            self.pc.apply(petsc_rhs, petsc_output)
+            return petsc_output.getArray(readonly=True).copy()
+        finally:
+            petsc_rhs.destroy()
+            petsc_output.destroy()
+
+    def close(self):
+        if self.pc is not None:
+            self.pc.destroy()
+            self.pc = None
+        if self.matrix is not None:
+            self.matrix.destroy()
+            self.matrix = None
+        self.is_setup = False
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def probe_velocity_amg_backend(backend: str) -> Tuple[bool, Optional[str]]:
+    """Return backend availability after a real setup/application probe."""
+    try:
+        if backend == 'pyamg':
+            import pyamg  # noqa: F401
+        elif backend in {'petsc_gamg', 'hypre_boomeramg'}:
+            _PETScVelocitySolver.probe(backend)
+        elif backend != 'internal':
+            raise ValueError(f"unknown velocity AMG backend: {backend}")
+        return True, None
+    except Exception as error:
+        return False, f'{type(error).__name__}: {error}'
+
+
 class BlockStokesSolver:
     """
     块Stokes求解器 — 用AMG解速度块 + CG解压力Schur补。
@@ -614,6 +755,13 @@ class BlockStokesSolver:
             'schur_columns': 0,
             'back_substitution': 0,
         }
+        self.velocity_backend_setup_failures = 0
+        self.velocity_preconditioner_apply_calls = 0
+        self.velocity_preconditioner_apply_time = 0.0
+        self.velocity_backend_errors = []
+        self.velocity_hierarchy_rebuilds = 0
+        self.velocity_hierarchy_reuses = 0
+        self.velocity_hierarchy_decisions = []
 
     def reset_stats(self):
         self.velocity_direct_fallbacks = 0
@@ -648,6 +796,13 @@ class BlockStokesSolver:
             'schur_columns': 0,
             'back_substitution': 0,
         }
+        self.velocity_backend_setup_failures = 0
+        self.velocity_preconditioner_apply_calls = 0
+        self.velocity_preconditioner_apply_time = 0.0
+        self.velocity_backend_errors = []
+        self.velocity_hierarchy_rebuilds = 0
+        self.velocity_hierarchy_reuses = 0
+        self.velocity_hierarchy_decisions = []
 
     def get_stats(self) -> Dict:
         return {
@@ -680,9 +835,19 @@ class BlockStokesSolver:
             'traditional_velocity_solve_calls': self.traditional_velocity_solve_calls,
             'adapted_velocity_solve_calls': self.adapted_velocity_solve_calls,
             'velocity_solver_breakdown': dict(self.velocity_solver_breakdown),
+            'velocity_backend': self.config.velocity_amg_backend,
+            'velocity_backend_setup_failures': self.velocity_backend_setup_failures,
+            'velocity_preconditioner_apply_calls': self.velocity_preconditioner_apply_calls,
+            'velocity_preconditioner_apply_time': self.velocity_preconditioner_apply_time,
+            'velocity_backend_errors': list(self.velocity_backend_errors),
+            'velocity_hierarchy_rebuilds': self.velocity_hierarchy_rebuilds,
+            'velocity_hierarchy_reuses': self.velocity_hierarchy_reuses,
+            'velocity_hierarchy_decisions': list(self.velocity_hierarchy_decisions),
         }
 
     def set_meta_amg(self, meta_amg):
+        if meta_amg is not None and self.config.velocity_amg_backend != 'internal':
+            raise ValueError('Meta-AMG currently requires velocity_amg_backend=internal')
         self.meta_amg = meta_amg
 
     def _new_velocity_solver(self, A_vel):
@@ -690,11 +855,40 @@ class BlockStokesSolver:
             solver = _PyAMGVelocitySolver()
             solver._hierarchy_source = 'traditional'
             return solver
+        if self.config.velocity_amg_backend in {'petsc_gamg', 'hypre_boomeramg'}:
+            return _PETScVelocitySolver(self.config.velocity_amg_backend)
         if self.config.velocity_amg_backend != 'internal':
             raise ValueError(f"unknown velocity AMG backend: {self.config.velocity_amg_backend}")
         solver = AlgebraicMultigridSolver(self.amg_config)
         solver._hierarchy_source = 'traditional'
         return solver
+
+    @staticmethod
+    def _relative_matrix_change(current, previous):
+        if previous is None or current.shape != previous.shape:
+            return np.inf
+        difference = (current - previous).tocsr()
+        denominator = np.linalg.norm(previous.data)
+        return float(np.linalg.norm(difference.data) / max(denominator, 1e-30))
+
+    def _should_rebuild_velocity_hierarchy(self, A_vel):
+        policy = self.config.velocity_hierarchy_policy
+        if self.config.reuse_velocity_hierarchy and policy == 'fresh':
+            policy = 'reuse'
+        if policy not in {'fresh', 'reuse', 'periodic', 'change_aware'}:
+            raise ValueError(f'unknown velocity hierarchy policy: {policy}')
+        change = self._relative_matrix_change(A_vel, self._prev_A_vel)
+        if self._reused_velocity_solver is None:
+            return True, 'initial_setup', change
+        if policy == 'fresh':
+            return True, 'fresh_setup', change
+        if policy == 'periodic' and self._picard_step % max(
+                self.config.velocity_rebuild_interval, 1) == 0:
+            return True, 'periodic_rebuild', change
+        if (policy == 'change_aware' and
+                change > self.config.velocity_matrix_change_threshold):
+            return True, 'matrix_change_rebuild', change
+        return False, 'hierarchy_update', change
 
     def _solve_velocity_system(self, A_vel: sp.spmatrix, rhs: np.ndarray, solver,
                                phase: str = 'rhs') -> np.ndarray:
@@ -713,7 +907,13 @@ class BlockStokesSolver:
         try:
             if not getattr(solver, 'is_setup', False):
                 setup_start = time.time()
-                solver.setup(A_vel, rhs)
+                try:
+                    solver.setup(A_vel, rhs)
+                except Exception as error:
+                    self.velocity_backend_setup_failures += 1
+                    self.velocity_backend_errors.append(
+                        f'setup: {type(error).__name__}: {error}')
+                    raise
                 setup_time = time.time() - setup_start
                 if getattr(solver, '_hierarchy_source', 'traditional') == 'adapted':
                     self.adapted_hierarchy_setups += 1
@@ -723,7 +923,16 @@ class BlockStokesSolver:
                     self.traditional_hierarchy_setup_time += setup_time
 
             def precondition(vec):
-                return solver.v_cycle(0, vec, np.zeros_like(vec))
+                start = time.perf_counter()
+                try:
+                    return solver.v_cycle(0, vec, np.zeros_like(vec))
+                except Exception as error:
+                    self.velocity_backend_errors.append(
+                        f'apply: {type(error).__name__}: {error}')
+                    raise
+                finally:
+                    self.velocity_preconditioner_apply_calls += 1
+                    self.velocity_preconditioner_apply_time += time.perf_counter() - start
 
             M = LinearOperator(A_vel.shape, matvec=precondition, dtype=float)
             krylov_iters = {'count': 0}
@@ -900,17 +1109,27 @@ class BlockStokesSolver:
         else:
             if self.meta_amg is not None:
                 self.meta_amg.solver.n_traditional += 1
-            if (self.config.reuse_velocity_hierarchy and
-                    self._reused_velocity_solver is not None):
+            rebuild, reason, matrix_change = self._should_rebuild_velocity_hierarchy(A_vel)
+            if not rebuild:
                 update_start = time.time()
                 self._reused_velocity_solver.update_matrix(A_vel)
                 self.reused_hierarchy_updates += 1
                 self.reused_hierarchy_update_time += time.time() - update_start
                 vel_solver = self._reused_velocity_solver
+                self.velocity_hierarchy_reuses += 1
             else:
                 vel_solver = self._new_velocity_solver(A_vel)
-                if self.config.reuse_velocity_hierarchy:
+                self.velocity_hierarchy_rebuilds += 1
+                policy = self.config.velocity_hierarchy_policy
+                if self.config.reuse_velocity_hierarchy and policy == 'fresh':
+                    policy = 'reuse'
+                if policy != 'fresh':
                     self._reused_velocity_solver = vel_solver
+            self.velocity_hierarchy_decisions.append({
+                'step': self._picard_step,
+                'reason': reason,
+                'matrix_change': matrix_change,
+            })
 
         # 保存当前状态供下一步Meta-AMG适配
         self._prev_A_vel = A_vel.copy()
@@ -942,7 +1161,10 @@ class BlockStokesSolver:
                         self.traditional_hierarchy_setup_time += setup_time
                 approximation = np.zeros_like(rhs_u)
                 for _ in range(max(1, self.config.schur_velocity_vcycles)):
-                    approximation = vel_solver.v_cycle(0, rhs_u, approximation)
+                    residual = rhs_u - A_vel @ approximation
+                    correction = vel_solver.v_cycle(
+                        0, residual, np.zeros_like(rhs_u))
+                    approximation += correction
                 return approximation
             if self.config.schur_velocity_inverse == 'ilu':
                 if schur_velocity_ilu['factor'] is None and not schur_velocity_ilu['failed']:
@@ -1020,13 +1242,15 @@ class BlockStokesSolver:
                     p, pressure_info = gmres(
                         schur_operator, rhs_p, M=pressure_preconditioner,
                         restart=min(50, len(p_idx)), maxiter=max(50, len(p_idx)),
-                        rtol=1e-8, atol=1e-10, callback=pressure_callback,
+                        rtol=self.config.pressure_solver_rtol, atol=1e-10,
+                        callback=pressure_callback,
                         callback_type='legacy')
                 except TypeError:
                     p, pressure_info = gmres(
                         schur_operator, rhs_p, M=pressure_preconditioner,
                         restart=min(50, len(p_idx)), maxiter=max(50, len(p_idx)),
-                        tol=1e-8, callback=pressure_callback)
+                        tol=self.config.pressure_solver_rtol,
+                        callback=pressure_callback)
                 self.pressure_krylov_iterations += pressure_iters['count']
                 pressure_residual = np.linalg.norm(schur_matvec(p) - rhs_p)
                 if (pressure_info != 0 or not np.isfinite(p).all() or
@@ -1543,11 +1767,15 @@ class PicardStokesSolver:
         )
 
         residual_history = []
+        assembly_time = 0.0
+        linear_solve_time = 0.0
+        nonlinear_update_time = 0.0
         if hasattr(self, '_block_solver'):
             self._block_solver.reset_stats()
 
         for iteration in range(self.config.max_picard_iterations):
             # 1. 装配
+            phase_start = time.perf_counter()
             A = self.assembler.assemble(
                 self.viscosity, self.temperature,
                 self.config.thermal_conductivity
@@ -1560,24 +1788,29 @@ class PicardStokesSolver:
 
             # 2. 边界条件
             A, b = self.bc_handler.apply(A, b)
+            assembly_time += time.perf_counter() - phase_start
 
             # 3. 求解
+            phase_start = time.perf_counter()
             if self.meta_amg is not None and iteration > 0:
                 # 用Meta-AMG适配
                 x = self._solve_with_meta_amg(A, b)
             else:
                 x = self._solve_with_amg(A, b)
+            linear_solve_time += time.perf_counter() - phase_start
 
             self._last_linear_matrix = A
             self._last_linear_rhs = b.copy()
 
             # 4. 更新
+            phase_start = time.perf_counter()
             x_old = self.velocity.copy()
             self.velocity = x
             strain_rate = self.advection.compute_strain_rate(self.velocity)
             self.viscosity = self.viscosity_model.compute(
                 self.temperature, strain_rate
             )
+            nonlinear_update_time += time.perf_counter() - phase_start
 
             # 5. 收敛检查
             residual = np.linalg.norm(x - x_old) / (np.linalg.norm(x) + 1e-12)
@@ -1589,16 +1822,24 @@ class PicardStokesSolver:
         # 计算Nusselt数
         self.total_nusselt = self._compute_nusselt()
 
-        return {
+        result = {
             'n_iterations': len(residual_history),
             'residual_history': residual_history,
+            'picard_converged': bool(
+                residual_history and residual_history[-1] < self.config.picard_tolerance),
             'nusselt': self.total_nusselt,
             'viscosity_range': (self.viscosity.min(), self.viscosity.max()),
             'linear_relative_residual': float(
                 np.linalg.norm(self._last_linear_rhs - self._last_linear_matrix @ self.velocity) /
                 max(np.linalg.norm(self._last_linear_rhs), 1e-14)
             ),
+            'assembly_time_s': float(assembly_time),
+            'linear_solve_time_s': float(linear_solve_time),
+            'nonlinear_update_time_s': float(nonlinear_update_time),
         }
+        if hasattr(self, '_block_solver'):
+            result['block_stats'] = self._block_solver.get_stats()
+        return result
 
     def solve_timestep(self) -> Dict:
         """
@@ -1644,26 +1885,37 @@ class PicardStokesSolver:
             return 0.0
 
         top_fluxes = []
-        if self.mesh.dim == 3:
-            if self.mesh.nx is None:
+        if self.mesh.nx is None:
+            if self.mesh.dim == 3:
                 from finite_elements.basis_functions import LagrangeTetra
                 basis = LagrangeTetra(1)
-                dN_dxi = basis.evaluate_derivatives(np.array([[0.25, 0.25, 0.25]]))[0]
-                weighted_flux = 0.0
-                total_volume = 0.0
-                top_nodes = set(self.mesh.top_nodes)
-                for element in self.mesh.elements:
-                    if not top_nodes.intersection(element):
-                        continue
-                    coords = self.mesh.nodes[element]
-                    J = jacobian_matrix(coords, dN_dxi)
-                    determinant = jacobian_det(J)
-                    gradients = dN_dx(dN_dxi, np.linalg.inv(J))
-                    grad_temperature = self.temperature[element] @ gradients
-                    volume = determinant / 6.0
-                    weighted_flux += -grad_temperature[-1] * volume
-                    total_volume += volume
-                return float(weighted_flux / max(total_volume * delta_T, 1e-14))
+                sample = np.array([[0.25, 0.25, 0.25]])
+            else:
+                basis = LagrangeTriangle(1)
+                sample = np.array([[1.0 / 3.0, 1.0 / 3.0]])
+            dN_dxi = basis.evaluate_derivatives(sample)[0]
+            weighted_flux = 0.0
+            total_surface = 0.0
+            top_nodes = set(self.mesh.top_nodes)
+            for element in self.mesh.elements:
+                top_facet = list(top_nodes.intersection(element))
+                if len(top_facet) < self.mesh.dim:
+                    continue
+                coords = self.mesh.nodes[element]
+                J = jacobian_matrix(coords, dN_dxi)
+                gradients = dN_dx(dN_dxi, np.linalg.inv(J))
+                grad_temperature = self.temperature[element] @ gradients
+                facet_coords = self.mesh.nodes[top_facet]
+                if self.mesh.dim == 3:
+                    surface = 0.5 * np.linalg.norm(np.cross(
+                        facet_coords[1] - facet_coords[0],
+                        facet_coords[2] - facet_coords[0]))
+                else:
+                    surface = np.linalg.norm(facet_coords[1] - facet_coords[0])
+                weighted_flux += -grad_temperature[-1] * surface
+                total_surface += surface
+            return float(weighted_flux / max(total_surface * delta_T, 1e-14))
+        if self.mesh.dim == 3:
             vertical_spacing = self.config.lz / self.config.nz
             row_stride = (self.config.nx + 1) * (self.config.ny + 1)
         else:

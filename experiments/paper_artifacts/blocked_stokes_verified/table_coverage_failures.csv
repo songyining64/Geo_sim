@@ -1,0 +1,41 @@
+benchmark,dimension,mesh_mode,viscosity_mode,n,method,n_attempts,n_success,n_unavailable,n_failed,n_numerical_failed,success_rate,failure_rate,numerical_failure_rate,unavailable_rate
+Full nonlinear blocked Stokes baseline benchmark,2,structured,temperature_dependent,2,direct,1,1,0,0,0,1.0,0.0,0.0,0.0
+Full nonlinear blocked Stokes baseline benchmark,2,structured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Full nonlinear blocked Stokes baseline benchmark,3,structured,temperature_dependent,2,direct,1,1,0,0,0,1.0,0.0,0.0,0.0
+Full nonlinear blocked Stokes baseline benchmark,3,structured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,isoviscous,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,isoviscous,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,isoviscous,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_dependent,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_dependent,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_strain_rate,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_strain_rate,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,structured,temperature_strain_rate,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,isoviscous,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,isoviscous,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,isoviscous,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_dependent,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_dependent,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_strain_rate,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_strain_rate,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,2,unstructured,temperature_strain_rate,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,isoviscous,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,isoviscous,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,isoviscous,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_dependent,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_dependent,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_strain_rate,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_strain_rate,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,structured,temperature_strain_rate,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,isoviscous,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,isoviscous,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,isoviscous,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_dependent,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_dependent,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_dependent,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_strain_rate,2,hypre_boomeramg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_strain_rate,2,petsc_gamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0
+Independent-process scalable blocked Stokes replay,3,unstructured,temperature_strain_rate,2,pyamg_fresh,1,1,0,0,0,1.0,0.0,0.0,0.0

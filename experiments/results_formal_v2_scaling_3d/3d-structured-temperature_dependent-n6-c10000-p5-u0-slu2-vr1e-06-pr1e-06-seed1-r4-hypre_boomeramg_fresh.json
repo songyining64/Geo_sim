@@ -1,0 +1,83 @@
+{
+  "method": "hypre_boomeramg_fresh",
+  "setup_time_s": 0.08060193061828613,
+  "solve_time_s": 7.706270319381712,
+  "total_time_s": 7.786872249999998,
+  "linear_solver_calls": 5,
+  "velocity_krylov_iterations": 50,
+  "velocity_solve_calls": 10,
+  "pressure_krylov_iterations": 50,
+  "max_linear_relative_residual": 3.1251617137632e-07,
+  "max_solution_relative_error_vs_direct": 8.196757606706308e-07,
+  "python_peak_memory_bytes": 1830822,
+  "velocity_fallbacks": 0,
+  "pressure_fallbacks": 0,
+  "pressure_preconditioner_fallbacks": 0,
+  "full_fallbacks": 0,
+  "hierarchy_setups": 5,
+  "hierarchy_updates": 0,
+  "hierarchy_rebuilds": 5,
+  "hierarchy_reuses": 0,
+  "hierarchy_decisions": [
+    {
+      "step": 0,
+      "reason": "initial_setup",
+      "matrix_change": Infinity
+    },
+    {
+      "step": 1,
+      "reason": "initial_setup",
+      "matrix_change": 0.0
+    },
+    {
+      "step": 2,
+      "reason": "initial_setup",
+      "matrix_change": 0.0
+    },
+    {
+      "step": 3,
+      "reason": "initial_setup",
+      "matrix_change": 0.0
+    },
+    {
+      "step": 4,
+      "reason": "initial_setup",
+      "matrix_change": 0.0
+    }
+  ],
+  "backend_setup_failures": 0,
+  "preconditioner_apply_calls": 75,
+  "preconditioner_apply_time_s": 0.04691162700002316,
+  "backend_errors": [],
+  "method_rss_baseline_bytes": 192512000,
+  "method_peak_rss_bytes": 201359360,
+  "method_peak_rss_delta_bytes": 8847360,
+  "quality_accepted": true,
+  "status": "success",
+  "n": 6,
+  "schur_velocity_inverse": "lu",
+  "schur_velocity_vcycles": 2,
+  "velocity_solver_rtol": 1e-06,
+  "pressure_solver_rtol": 1e-06,
+  "seed": 1,
+  "viscosity_contrast": 10000.0,
+  "trajectory_generation_time_s": 12.5655995,
+  "nodal_viscosity_min": 1.0,
+  "nodal_viscosity_max": 10000.0,
+  "nodal_viscosity_contrast": 10000.0,
+  "element_viscosity_min": 1.7992891139332075,
+  "element_viscosity_max": 8112.540829061611,
+  "element_viscosity_contrast": 4508.747797249643,
+  "trajectory_sparse_bytes": 3030300,
+  "mesh_mode": "structured",
+  "dimension": 3,
+  "n_nodes": 343,
+  "n_elements": 1296,
+  "velocity_dofs": 1029,
+  "stokes_dofs": 1372,
+  "thermo_stokes_dofs": 1715,
+  "viscosity_mode": "temperature_dependent",
+  "peak_rss_bytes": 201375744,
+  "repeat": 4,
+  "subprocess_wall_time_s": 21.722495417000005
+}

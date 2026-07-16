@@ -1,0 +1,20 @@
+benchmark,dimension,mesh_mode,viscosity_mode,n,method,n_attempts,n_success,n_unavailable,n_failed,n_numerical_failed,success_rate,failure_rate,numerical_failure_rate,unavailable_rate
+Blocked Stokes nonlinear (2D + 3D),2,structured,temperature_dependent,8,direct,10,10,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes nonlinear (2D + 3D),2,structured,temperature_dependent,8,hypre_boomeramg_fresh,10,10,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes nonlinear (2D + 3D),3,structured,temperature_dependent,4,direct,10,10,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes nonlinear (2D + 3D),3,structured,temperature_dependent,4,hypre_boomeramg_fresh,10,10,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,16,hypre_boomeramg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,16,petsc_gamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,16,pyamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,32,hypre_boomeramg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,32,petsc_gamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),2,structured,temperature_dependent,32,pyamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,4,hypre_boomeramg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,4,petsc_gamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,4,pyamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,6,hypre_boomeramg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,6,petsc_gamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,6,pyamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,8,hypre_boomeramg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,8,petsc_gamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0
+Blocked Stokes scaling (2D + 3D),3,structured,temperature_dependent,8,pyamg_fresh,15,15,0,0,0,1.0,0.0,0.0,0.0

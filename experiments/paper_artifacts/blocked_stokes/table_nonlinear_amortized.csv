@@ -1,0 +1,5 @@
+dimension,mesh_mode,viscosity_mode,n,stokes_dofs,n_steps,method,n_samples,wall_s_mean,wall_s_ci95_half,wall_per_step_s_mean,setup_per_step_s_mean,linear_per_picard_s_mean,picard_per_step_mean,method_peak_rss_mib_mean,method_peak_rss_delta_mib_mean,failure_rate,unavailable_rate,numerical_failure_rate
+2,structured,temperature_dependent,8,243,20,direct,10,9.590661275,2.782682371949978,0.47953306374999993,0.0,0.0009133426969999857,5.0,285.3796875,1.3640625,0.0,0.0,0.0
+2,structured,temperature_dependent,8,243,20,hypre_boomeramg_fresh,10,15.1700788417,1.7863488567237782,0.758503942085,0.004584563970565796,0.028826957519999946,5.0,170.640625,2.2203125,0.0,0.0,0.0
+3,structured,temperature_dependent,4,500,20,direct,10,80.761003629,9.93273093379409,4.03805018145,0.0,0.003633672052999925,5.0,287.365625,3.2671875,0.0,0.0,0.0
+3,structured,temperature_dependent,4,500,20,hypre_boomeramg_fresh,10,91.56631871260001,5.859433143246347,4.57831593563,0.01631163477897644,0.07179159918399994,5.0,173.2125,4.7921875,0.0,0.0,0.0

@@ -1,0 +1,5 @@
+dimension,mesh_mode,viscosity_mode,n,n_steps,method,n_samples,physics_equivalence_rate,quality_accept_rate,nusselt_rel_error_mean,nusselt_rel_error_ci95_half,rms_velocity_rel_error_mean,temperature_field_rel_error_mean,velocity_field_rel_error_mean,max_linear_residual_mean
+2,structured,temperature_dependent,8,20,direct,10,1.0,1.0,0.0,0.0,0.0,0.0,0.0,5.451846362518799e-12
+2,structured,temperature_dependent,8,20,hypre_boomeramg_fresh,10,1.0,1.0,3.015569900638718e-14,3.298776437832225e-14,4.091321905292125e-08,3.556939694147504e-13,5.413262295599879e-07,8.606308222261318e-08
+3,structured,temperature_dependent,4,20,direct,10,1.0,1.0,0.0,0.0,0.0,0.0,0.0,1.8437171136414353e-11
+3,structured,temperature_dependent,4,20,hypre_boomeramg_fresh,10,1.0,1.0,6.419418692440956e-15,5.062029585788609e-15,2.5298176797343995e-08,5.3623567206682016e-14,3.217305287344707e-07,1.319344445344372e-07
