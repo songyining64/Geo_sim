@@ -337,3 +337,27 @@ Installation: `pip install geo_sim` or `bash install.sh`
 [18] Moresi, L. and Solomatov, V. "Mantle convection with a brittle lithosphere." *Geophys. J. Int.*, 133(3), 1998.
 
 [19] Saad, Y. *Iterative Methods for Sparse Linear Systems.* SIAM, 2nd Edition, 2003.
+
+[20] Kronbichler, M., Heister, T., and Bangerth, W. "High accuracy mantle convection simulation through modern numerical methods." *Geophys. J. Int.*, 191(1), 12--29, 2012.
+
+[21] Moresi, L., Dufour, F., and Mühlhaus, H.B. "A Lagrangian integration point finite element method for large deformation modeling of viscoelastic geomaterials." *J. Comput. Phys.*, 184(2), 476--497, 2003.
+
+[22] Balay, S., Abhyankar, S., Adams, M.F., et al. "PETSc users manual." Argonne National Laboratory, ANL-95/11, 2019.
+
+[23] Falgout, R.D., Jones, J.E., and Yang, U.M. "The design and implementation of hypre, a library of parallel high performance preconditioners." *Numerical Solution of PDEs on Parallel Computers*, Springer, 2006.
+
+[24] Elman, H.C., Silvester, D.J., and Wathen, A.J. *Finite Elements and Fast Iterative Solvers.* Oxford University Press, 2nd Edition, 2014.
+
+[25] Tezduyar, T.E., Mittal, S., Ray, S.E., and Shih, R. "Incompressible flow computations with stabilized bilinear and linear equal-order-interpolation velocity-pressure elements." *Comput. Methods Appl. Mech. Eng.*, 95(2), 221--242, 1992.
+
+[26] van Keken, P.E., King, S.D., Schmeling, H., et al. "A comparison of methods for the modeling of thermochemical convection." *J. Geophys. Res.*, 102(B10), 22477--22495, 1997.
+
+[27] Tosi, N., Stein, C., Noack, L., et al. "A community benchmark for viscoplastic thermal convection." *Geophys. J. Int.*, 210(3), 1679--1700, 2015.
+
+[28] Donea, J. and Huerta, A. *Finite Element Methods for Flow Problems.* Wiley, 2003.
+
+[29] Kelley, C.T. *Iterative Methods for Linear and Nonlinear Equations.* SIAM, 1995.
+
+[30] Hughes, T.J.R., Franca, L.P., and Balestra, M. "A new finite element formulation for computational fluid dynamics: V. Circumventing the Babuška-Brezzi condition." *Comput. Methods Appl. Mech. Eng.*, 59(1), 85--99, 1986.
+
+[31] Zhong, S., McNamara, A., Tan, E., Moresi, L., and Gurnis, M. "A benchmark study on mantle convection in a 3-D spherical shell using CitcomS." *Geochem. Geophys. Geosyst.*, 9(10), 2008.
